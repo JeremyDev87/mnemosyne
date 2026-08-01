@@ -2,8 +2,11 @@
 node_modules/
 coverage/
 .tmp/
+.wrangler/
 dist/
 build/
+playwright-report/
+test-results/
 .env
 .env.*
 !.env.example

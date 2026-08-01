@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#15263d" />
+    <meta name="description" content="Mnemosyne — 개인 지식과 업무의 현재 상태를 이해하고 관리하는 control plane" />
+    <title>Mnemosyne</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#content">본문으로 건너뛰기</a>
+    <div class="shell">
+      <aside class="rail" aria-label="주 메뉴">
+        <a class="brand" href="/" data-nav aria-label="Mnemosyne 홈">
+          <span class="brand-mark" aria-hidden="true">M</span>
+          <span><strong>Mnemosyne</strong><small>Memory into action</small></span>
+        </a>
+        <nav>
+          <a href="/" data-nav><span aria-hidden="true">◫</span> Dashboard</a>
+          <a href="/wiki" data-nav><span aria-hidden="true">⌕</span> Wiki</a>
+          <a href="/ops" data-nav><span aria-hidden="true">✎</span> Ops 편집</a>
+        </nav>
+        <div class="rail-note"><span class="status-dot"></span> Shadow mode<br /><small>Canonical write 비활성</small></div>
+      </aside>
+      <main id="content" tabindex="-1"><div class="loading" role="status">기억을 정리하는 중…</div></main>
+    </div>
+  </body>
+</html>

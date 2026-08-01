@@ -1,35 +1,44 @@
 # Mnemosyne
 
-개인의 지식과 업무를 이해하고 관리하는 **cloud-first personal operating system**입니다.
+개인의 지식과 업무를 이해하고 관리하는 **cloud-first personal operating system**입니다. 이름은 그리스 신화의 기억의 여신에서 가져왔습니다.
 
-> Mnemosyne는 그리스 신화의 기억의 여신에서 이름을 가져왔습니다.
+## MVP
 
-## 목표
+- Brain authority를 반영한 Wiki 검색과 citation-first 설명
+- `tasks / schedule / inbox`의 상태·정합성 Dashboard
+- 세 Personal Ops ledger만 허용하는 diff/validation/ETag 편집 API
+- Cloudflare Access + Worker + private R2 canonical + 재생성 가능한 D1 FTS5 projection
+- R2 history/readback과 `WRITE_ENABLED=false` 기본 kill switch
 
-- 전체 wiki를 검색하고, 현재 진실과 근거를 사람이 이해할 수 있게 설명합니다.
-- `tasks / schedule / inbox`를 하나의 Personal Ops 대시보드에서 관리합니다.
-- 편집은 허용된 Personal Ops 범위에만 제한하고, 변경 전후와 검증 결과를 보존합니다.
+범용 wiki 편집, 자동 agent 실행, 다중 사용자, 외부 캘린더·알림, 로컬 corpus/index/DB/model runtime은 포함하지 않습니다.
 
-## MVP 범위
+## 로컬 검증
 
-### 포함
+```bash
+npm install
+npm run seed:local
+npm test
+npm run lint
+npm run typecheck
+npm run build
+npm run test:e2e
+```
 
-- Wiki 검색 및 canonical source 설명
-- 일정·할 일·inbox 요약
-- Personal Ops 세 영역의 제한적 편집
-- 변경 충돌 감지와 감사 가능한 저장 결과
+`npm run dev`는 별도 `wrangler.local.jsonc`와 `.tmp/wrangler`만 사용합니다. synthetic fixture만 적재하며 실제 iCloud wiki나 원격 Cloudflare 자원에 접근하지 않습니다.
 
-### 제외
+## 주요 경로
 
-- 범용 wiki 문서 편집
-- 자동 agent 실행
-- 외부 캘린더·알림 연동
-- 다중 사용자 및 원격 공개 운영
-- 로컬 wiki corpus·검색 index·DB·모델 의존
+- `src/worker.ts` — API router 및 static assets entry
+- `src/wiki/` — authority, R2 storage, D1 indexing, import manifest
+- `src/personal-ops/` — ledger parsing, integrity rules, edit allowlist
+- `public/` — Dashboard, Wiki Search, Ops Editor
+- `scripts/import-wiki.ts` — 기본 dry-run, `--apply`일 때만 shadow R2 upload
+- `migrations/` — 재생성 가능한 D1 FTS schema
+- `docs/runbook.md` — provider setup/cutover/rollback gate
 
-## 상태
+## 보안·배포 경계
 
-초기 저장소입니다. 구현 전 제품 범위와 운영 계약을 먼저 고정합니다.
+Production은 `AUTH_MODE=access`로 fail-closed하며 `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`, `ALLOWED_EMAILS`가 모두 필요합니다. R2 bucket은 공개하면 안 됩니다. 실제 provider 생성, remote migration, deployment, write activation, canonical cutover는 이 저장소의 로컬 구현과 별도 승인 단계입니다.
 
 ## 라이선스
 
