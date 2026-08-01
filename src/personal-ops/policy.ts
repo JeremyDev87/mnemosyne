@@ -1,4 +1,4 @@
-import { parseMarkdownTable } from "./parser";
+import { hasDoneEvidence, parseMarkdownTable } from "./parser";
 
 export const EDITABLE_PATHS = [
   "brain/P6_prefrontal/personal-ops/tasks.md",
@@ -19,6 +19,17 @@ const REQUIRED_COLUMNS: Record<string, string[]> = {
   "domains/personal-ops/inbox.md": ["입력 시각", "Scope", "내용", "상태", "다음 액션"]
 };
 const SCOPES = new Set(["work/remember", "personal", "mixed", "unknown"]);
+
+function isValidScheduleDate(value: string): boolean {
+  const match = value.trim().match(/^(\d{4})-(\d{2})-(\d{2})(?:$|[T\s])/);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
 const STATUSES: Record<string, Set<string>> = {
   "brain/P6_prefrontal/personal-ops/tasks.md": new Set(["todo", "doing", "blocked", "waiting", "done", "dropped"]),
   "domains/personal-ops/schedule.md": new Set(["tentative", "confirmed", "cancelled", "done"]),
@@ -40,8 +51,10 @@ export function validatePersonalOpsDocument(path: string, content: string): Vali
     if (!SCOPES.has(scope)) errors.push({ code: "INVALID_SCOPE", message: `invalid scope: ${scope}`, row: index + 1 });
     const status = row["상태"] ?? "";
     if (!STATUSES[path]?.has(status)) errors.push({ code: "INVALID_STATUS", message: `invalid status: ${status}`, row: index + 1 });
-    const evidence = `${row["출처"] ?? ""} ${row["메모"] ?? ""} ${row["다음 액션"] ?? ""}`.toLowerCase();
-    if (status === "done" && !evidence.includes("done:") && !evidence.includes("완료 근거") && !evidence.includes("산출물:")) {
+    if (path === "domains/personal-ops/schedule.md" && !isValidScheduleDate(row["날짜/시간"] ?? "")) {
+      errors.push({ code: "INVALID_DATE", message: "schedule date must start with a valid ISO date", row: index + 1 });
+    }
+    if (status === "done" && !hasDoneEvidence(row)) {
       errors.push({ code: "DONE_WITHOUT_EVIDENCE", message: "done requires explicit evidence", row: index + 1 });
     }
     if (scope === "unknown") warnings.push({ code: "UNKNOWN_SCOPE", message: "scope confirmation required", row: index + 1 });

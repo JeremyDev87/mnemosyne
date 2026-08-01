@@ -33,7 +33,7 @@ npm run import:scan -- --source /path/to/wiki --manifest .tmp/import-manifest.js
 npm run verify:import -- --manifest .tmp/import-manifest.json
 ```
 
-Importer는 Markdown을 한 파일씩 읽으며 hidden/tooling directories와 binary를 제외합니다. Remote apply에는 R2 S3 endpoint/access key/bucket 환경변수가 필요하며 기본 실행은 dry-run입니다.
+`--apply`에는 R2 S3 endpoint/access key/bucket와 D1 HTTP API용 `D1_ACCOUNT_ID`, `D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN` 환경변수가 모두 필요합니다. Importer는 Markdown을 한 파일씩 읽어 R2 `shadow/current/`에 업로드하고, 같은 파일을 D1 `wiki_pages/wiki_fts`에 projection한 뒤 `index_status=ready`로 전환합니다. D1 projection 중 오류가 나면 완료 상태를 출력하지 않으며, 다음 실행에서 해당 manifest를 재처리해야 합니다. 기본 실행은 dry-run입니다.
 
 ## Write activation gate
 

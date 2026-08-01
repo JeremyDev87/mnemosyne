@@ -18,6 +18,18 @@ describe("authentication fails closed", () => {
     expect(await rejectionStatus(requireIdentity(request, config))).toBe(403);
   });
 
+  it("rejects malformed Access JWTs as unauthorized", async () => {
+    const request = new Request("https://example.com/api", { headers: { "cf-access-jwt-assertion": "not-a-jwt" } });
+    const accessConfig = {
+      AUTH_MODE: "access",
+      ENVIRONMENT: "production",
+      CF_ACCESS_TEAM_DOMAIN: "team.example.com",
+      CF_ACCESS_AUD: "audience",
+      ALLOWED_EMAILS: "owner@example.com"
+    };
+    expect(await rejectionStatus(requireIdentity(request, accessConfig))).toBe(401);
+  });
+
   it("does not permit test auth outside the test environment", async () => {
     const request = new Request("https://example.com/api", { headers: { "x-mnemosyne-test-user": "owner@example.com" } });
     expect(await rejectionStatus(requireIdentity(request, { ...config, ENVIRONMENT: "production" }))).toBe(503);

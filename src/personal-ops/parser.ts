@@ -32,9 +32,10 @@ const countBy = (rows: Row[], key: string): Record<string, number> => rows.reduc
   return counts;
 }, {});
 
-const hasDoneEvidence = (row: Row): boolean => {
-  const source = `${row["출처"] ?? ""} ${row["메모"] ?? ""} ${row["다음 액션"] ?? ""}`.toLowerCase();
-  return source.includes("done:") || source.includes("완료 근거") || source.includes("산출물:");
+export const hasDoneEvidence = (row: Row): boolean => {
+  const source = `${row["출처"] ?? ""}\n${row["메모"] ?? ""}\n${row["다음 액션"] ?? ""}`.toLowerCase();
+  return /(?:^|[\n;|])\s*done:\s*(?:user_explicit|tool|artifact)\b/.test(source)
+    || /(?:^|[\n;|])\s*(?:완료\s*근거|산출물)\s*:\s*\S+/.test(source);
 };
 
 export function buildPersonalOpsSummary(documents: { tasks: string; schedule: string; inbox: string }, now = new Date()) {
