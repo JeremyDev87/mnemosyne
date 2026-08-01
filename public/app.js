@@ -14,6 +14,15 @@ function escapeHtml(value = "") {
   return String(value).replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
 }
 
+/** Escape untrusted wiki text, then restore only FTS highlight markers. */
+function formatExcerpt(value = "") {
+  const withPlaceholders = String(value)
+    .replace(/<\/?mark>/gi, (tag) => (tag.toLowerCase() === "<mark>" ? "\u0000MARK_OPEN\u0000" : tag.toLowerCase() === "</mark>" ? "\u0000MARK_CLOSE\u0000" : tag));
+  return escapeHtml(withPlaceholders)
+    .replaceAll("\u0000MARK_OPEN\u0000", "<mark>")
+    .replaceAll("\u0000MARK_CLOSE\u0000", "</mark>");
+}
+
 function setActiveNav() {
   document.querySelectorAll("[data-nav]").forEach((link) => {
     const href = link.getAttribute("href");
@@ -63,7 +72,7 @@ async function renderWiki() {
     target.innerHTML = `<div class="loading" role="status">근거를 찾는 중…</div>`;
     try {
       const payload = await api(`/api/wiki/search?q=${encodeURIComponent(query)}`);
-      target.innerHTML = payload.results.length ? `<div class="result-list">${payload.results.map((result) => `<article><div class="result-meta"><span class="authority authority-${escapeHtml(result.authorityKind)}">${escapeHtml(result.authorityKind)}</span><code>${escapeHtml(result.path)}</code></div><h2>${escapeHtml(result.title)}</h2><p>${result.excerpt || "본문 미리보기 없음"}</p>${result.answerableAsCurrent ? "" : `<small>현재 진실로 직접 답변할 수 없는 evidence/alias입니다.</small>`}</article>`).join("")}</div>` : `<p class="empty">일치하는 문서가 없습니다. 다른 표현으로 검색해 주세요.</p>`;
+      target.innerHTML = payload.results.length ? `<div class="result-list">${payload.results.map((result) => `<article><div class="result-meta"><span class="authority authority-${escapeHtml(result.authorityKind)}">${escapeHtml(result.authorityKind)}</span><code>${escapeHtml(result.path)}</code></div><h2>${escapeHtml(result.title)}</h2><p>${formatExcerpt(result.excerpt) || "본문 미리보기 없음"}</p>${result.answerableAsCurrent ? "" : `<small>현재 진실로 직접 답변할 수 없는 evidence/alias입니다.</small>`}</article>`).join("")}</div>` : `<p class="empty">일치하는 문서가 없습니다. 다른 표현으로 검색해 주세요.</p>`;
     } catch (error) { target.innerHTML = `<p class="error">${escapeHtml(error.message)}</p>`; }
   });
 }
