@@ -36,7 +36,12 @@ export async function requireIdentity(request: Request, config: AuthConfig): Pro
     keySet = createRemoteJWKSet(new URL(`${issuer}/cdn-cgi/access/certs`));
     keySets.set(issuer, keySet);
   }
-  const { payload } = await jwtVerify(token, keySet, { issuer, audience });
+  let payload;
+  try {
+    ({ payload } = await jwtVerify(token, keySet, { issuer, audience }));
+  } catch {
+    throw new Response("Unauthorized", { status: 401 });
+  }
   const email = typeof payload.email === "string" ? payload.email.toLowerCase() : "";
   if (!email || !allowed.has(email)) throw new Response("Forbidden", { status: 403 });
   return { email, subject: payload.sub ?? email };

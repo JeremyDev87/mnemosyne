@@ -1,5 +1,14 @@
 import { parseWikiDocument, toFtsQuery } from "./authority";
 
+export interface PreparedStatementLike {
+  bind(...values: unknown[]): PreparedStatementLike;
+}
+
+export interface IndexDatabase {
+  prepare(sql: string): PreparedStatementLike;
+  batch(statements: PreparedStatementLike[]): Promise<unknown>;
+}
+
 export interface SearchResult {
   path: string;
   title: string;
@@ -14,7 +23,7 @@ export interface SearchResult {
   score: number;
 }
 
-export async function indexDocument(db: D1Database, path: string, content: string, hash: string): Promise<void> {
+export async function indexDocument(db: IndexDatabase, path: string, content: string, hash: string): Promise<void> {
   const document = parseWikiDocument(path, content);
   const metadata = document.metadata;
   await db.batch([
