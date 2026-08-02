@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, readFile, realpath, stat } from "node:fs/promises";
+import { resolve, sep } from "node:path";
+
+export const MAX_SOURCE_FILE_BYTES = 8 * 1024 * 1024;
 
 export interface HydrationReceipt {
   available: boolean;
@@ -22,6 +26,7 @@ export interface SourceReadReceipt {
   discovered: number;
   readable: number;
   failed: number;
+  peakBufferedBytes: number;
   hydration: HydrationReceipt;
   waves: SourceReadWaveReceipt[];
   finalErrorClasses: Record<string, number>;
@@ -29,12 +34,15 @@ export interface SourceReadReceipt {
 
 export interface SourceReaderOptions {
   read?: (path: string, signal: AbortSignal) => Promise<Buffer>;
+  onRead?: (path: string, bytes: Buffer) => Promise<void> | void;
   hydrate?: (paths: string[]) => Promise<Omit<HydrationReceipt, "available"> & { available?: boolean }>;
   sleep?: (milliseconds: number) => Promise<void>;
+  root?: string;
   maxWaves?: number;
   timeoutMs?: number;
   batchDelayMs?: number;
   concurrency?: number;
+  maxFileBytes?: number;
 }
 
 export class SourceReadError extends Error {
@@ -47,11 +55,17 @@ export class SourceReadError extends Error {
 interface FailedRead { path: string; errorClass: string; retryable: boolean }
 type ReadResult = { path: string; bytes: Buffer; failure?: never } | { path: string; bytes?: never; failure: FailedRead };
 
-const RETRYABLE_CODES = new Set(["EAGAIN", "EDEADLK", "EBUSY", "ENOENT", "ABORT_ERR", "AbortError", "TimeoutError"]);
+const RETRYABLE_CODES = new Set(["EAGAIN", "EDEADLK", "EBUSY", "ENOENT", "ABORT_ERR", "AbortError", "TimeoutError", "ETIMEDOUT"]);
 
 function positiveInteger(value: number, name: string): number {
   if (!Number.isInteger(value) || value <= 0) throw new Error(`${name} must be a positive integer`);
   return value;
+}
+
+function codedError(code: string, message: string): NodeJS.ErrnoException {
+  const error = new Error(message) as NodeJS.ErrnoException;
+  error.code = code;
+  return error;
 }
 
 function errorClass(error: unknown): string {
@@ -81,12 +95,80 @@ function countClasses(failures: FailedRead[]): Record<string, number> {
   return counts;
 }
 
+function isWithinRoot(root: string, candidate: string): boolean {
+  return candidate === root || candidate.startsWith(`${root}${sep}`);
+}
+
+function createRootBoundReader(root: string, maxFileBytes: number): (path: string, signal: AbortSignal) => Promise<Buffer> {
+  const resolvedRoot = resolve(root);
+  const canonicalRoot = realpath(resolvedRoot);
+  return async (path, signal) => {
+    const expectedRoot = await canonicalRoot;
+    const absolute = resolve(path);
+    if (!isWithinRoot(resolvedRoot, absolute)) throw codedError("EBOUNDARY", "Source path escapes configured root");
+
+    let handle;
+    try {
+      handle = await open(absolute, constants.O_RDONLY | constants.O_NOFOLLOW);
+    } catch (error) {
+      if (errorClass(error) === "ELOOP") throw codedError("ESYMLINK", "Source path resolves through a symbolic link");
+      throw error;
+    }
+
+    try {
+      const [canonicalPath, handleInfo] = await Promise.all([realpath(absolute), handle.stat()]);
+      if (!isWithinRoot(expectedRoot, canonicalPath)) throw codedError("EBOUNDARY", "Source path leaves the canonical source boundary");
+      const pathInfo = await stat(canonicalPath);
+      if (handleInfo.dev !== pathInfo.dev || handleInfo.ino !== pathInfo.ino) throw codedError("EBOUNDARY", "Source path changed during descriptor binding");
+      if (!handleInfo.isFile()) throw codedError("EINVAL", "Source path is not a regular file");
+      if (handleInfo.size > maxFileBytes) throw codedError("EFBIG", "Source file exceeds the per-file memory limit");
+      return await readFile(handle, { signal });
+    } finally {
+      await handle.close();
+    }
+  };
+}
+
+function readWithHardDeadline(
+  path: string,
+  read: (path: string, signal: AbortSignal) => Promise<Buffer>,
+  timeoutMs: number
+): Promise<Buffer> {
+  const controller = new AbortController();
+  return new Promise((resolvePromise, rejectPromise) => {
+    let settled = false;
+    const finish = (callback: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      callback();
+    };
+    const timer = setTimeout(() => {
+      controller.abort();
+      finish(() => rejectPromise(codedError("ETIMEDOUT", "Source read hard deadline exceeded")));
+    }, timeoutMs);
+    Promise.resolve()
+      .then(() => read(path, controller.signal))
+      .then(
+        (bytes) => finish(() => resolvePromise(bytes)),
+        (error: unknown) => finish(() => rejectPromise(error))
+      );
+  });
+}
+
 function requestHydration(path: string): Promise<boolean> {
-  return new Promise((resolve) => {
+  return new Promise((resolvePromise) => {
     const child = spawn("/usr/bin/brctl", ["download", path], { stdio: "ignore" });
-    const timer = setTimeout(() => { child.kill(); resolve(false); }, 10_000);
-    child.once("error", () => { clearTimeout(timer); resolve(false); });
-    child.once("exit", (code) => { clearTimeout(timer); resolve(code === 0); });
+    let settled = false;
+    const finish = (accepted: boolean): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolvePromise(accepted);
+    };
+    const timer = setTimeout(() => { child.kill(); finish(false); }, 10_000);
+    child.once("error", () => finish(false));
+    child.once("exit", (code) => finish(code === 0));
   });
 }
 
@@ -100,20 +182,25 @@ async function hydrateOnMac(paths: string[]): Promise<HydrationReceipt> {
   return { available: true, requested: paths.length, accepted, failed: paths.length - accepted };
 }
 
-export async function readSourceFiles(paths: string[], options: SourceReaderOptions = {}): Promise<{ files: Map<string, Buffer>; receipt: SourceReadReceipt }> {
+export async function readSourceFiles(paths: string[], options: SourceReaderOptions = {}): Promise<{ receipt: SourceReadReceipt }> {
   const maxWaves = positiveInteger(options.maxWaves ?? 24, "maxWaves");
   const timeoutMs = positiveInteger(options.timeoutMs ?? 15_000, "timeoutMs");
-  const concurrency = positiveInteger(options.concurrency ?? 16, "concurrency");
+  const concurrency = positiveInteger(options.concurrency ?? 8, "concurrency");
+  const maxFileBytes = positiveInteger(options.maxFileBytes ?? MAX_SOURCE_FILE_BYTES, "maxFileBytes");
   const batchDelayMs = options.batchDelayMs ?? 5_000;
   if (!Number.isFinite(batchDelayMs) || batchDelayMs < 0) throw new Error("batchDelayMs must be non-negative");
-  const read = options.read ?? ((path: string, signal: AbortSignal) => readFile(path, { signal }));
+  if (!options.onRead) throw new Error("onRead is required so successful bytes can be released after each bounded chunk");
+  if (!options.read && !options.root) throw new Error("root is required for the default no-follow source reader");
+  const read = options.read ?? createRootBoundReader(options.root as string, maxFileBytes);
+  const onRead = options.onRead;
   const hydrate = options.hydrate ?? hydrateOnMac;
-  const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>((resolve) => setTimeout(resolve, milliseconds)));
-  const files = new Map<string, Buffer>();
+  const sleep = options.sleep ?? ((milliseconds: number) => new Promise<void>((resolvePromise) => setTimeout(resolvePromise, milliseconds)));
   const waves: SourceReadWaveReceipt[] = [];
   const terminalFailures: FailedRead[] = [];
   let pending = [...paths];
   let latestRetryable: FailedRead[] = [];
+  let readable = 0;
+  let peakBufferedBytes = 0;
   let hydration: HydrationReceipt = { available: false, requested: 0, accepted: 0, failed: 0 };
 
   for (let wave = 1; wave <= maxWaves && pending.length > 0; wave += 1) {
@@ -124,14 +211,22 @@ export async function readSourceFiles(paths: string[], options: SourceReaderOpti
       const chunk = pending.slice(index, index + concurrency);
       const results = await Promise.all(chunk.map(async (path): Promise<ReadResult> => {
         try {
-          return { path, bytes: await read(path, AbortSignal.timeout(timeoutMs)) };
+          const bytes = await readWithHardDeadline(path, read, timeoutMs);
+          if (bytes.byteLength > maxFileBytes) throw codedError("EFBIG", "Source file exceeds the per-file memory limit");
+          return { path, bytes };
         } catch (error) {
           return { path, failure: { path, errorClass: errorClass(error), retryable: isRetryableReadError(error) } satisfies FailedRead };
         }
       }));
+      const bufferedBytes = results.reduce((sum, result) => sum + (result.bytes?.byteLength ?? 0), 0);
+      peakBufferedBytes = Math.max(peakBufferedBytes, bufferedBytes);
       for (const result of results) {
-        if (result.bytes !== undefined) files.set(result.path, result.bytes);
-        else failures.push(result.failure);
+        if (result.bytes !== undefined) {
+          await onRead(result.path, result.bytes);
+          readable += 1;
+        } else {
+          failures.push(result.failure);
+        }
       }
     }
     const retryableFailures = failures.filter((failure) => failure.retryable);
@@ -162,12 +257,13 @@ export async function readSourceFiles(paths: string[], options: SourceReaderOpti
   const finalFailures = [...terminalFailures, ...latestRetryable];
   const receipt: SourceReadReceipt = {
     discovered: paths.length,
-    readable: files.size,
+    readable,
     failed: finalFailures.length,
+    peakBufferedBytes,
     hydration,
     waves,
     finalErrorClasses: countClasses(finalFailures)
   };
   if (finalFailures.length > 0) throw new SourceReadError(receipt);
-  return { files, receipt };
+  return { receipt };
 }
