@@ -11,6 +11,7 @@ function retryableReadError(): NodeJS.ErrnoException {
 describe("cloud-backed source reader", () => {
   it("hydrates retryable files once and retries them in batch waves", async () => {
     const attempts = new Map<string, number>();
+    const delivered = new Map<string, string>();
     const hydrate = vi.fn(async (paths: string[]) => ({ requested: paths.length, accepted: paths.length, failed: 0 }));
     const sleep = vi.fn(async () => undefined);
 
@@ -21,6 +22,7 @@ describe("cloud-backed source reader", () => {
         if (path === "dataless.md" && attempt === 1) throw retryableReadError();
         return Buffer.from(path);
       },
+      onRead: async (path, bytes) => { delivered.set(path, bytes.toString()); },
       hydrate,
       sleep,
       batchDelayMs: 25,
@@ -29,12 +31,53 @@ describe("cloud-backed source reader", () => {
 
     expect(hydrate).toHaveBeenCalledWith(["dataless.md"]);
     expect(sleep).toHaveBeenCalledTimes(1);
-    expect(result.files.get("ready.md")?.toString()).toBe("ready.md");
-    expect(result.files.get("dataless.md")?.toString()).toBe("dataless.md");
+    expect(delivered).toEqual(new Map([["ready.md", "ready.md"], ["dataless.md", "dataless.md"]]));
     expect(result.receipt.waves.map(({ attempted, succeeded, retryable }) => ({ attempted, succeeded, retryable }))).toEqual([
       { attempted: 2, succeeded: 1, retryable: 1 },
       { attempted: 1, succeeded: 1, retryable: 0 }
     ]);
+  });
+
+  it("enforces a hard deadline even when the reader ignores AbortSignal", async () => {
+    const started = performance.now();
+    await expect(readSourceFiles(["stuck.md"], {
+      read: async () => new Promise<Buffer>(() => undefined),
+      onRead: async () => undefined,
+      hydrate: async (paths) => ({ requested: paths.length, accepted: 0, failed: paths.length }),
+      timeoutMs: 5,
+      maxWaves: 1
+    })).rejects.toSatisfy((caught: unknown) => {
+      expect(caught).toBeInstanceOf(SourceReadError);
+      expect((caught as SourceReadError).receipt.finalErrorClasses).toEqual({ ETIMEDOUT: 1 });
+      return true;
+    });
+    expect(performance.now() - started).toBeLessThan(100);
+  });
+
+  it("bounds retained bytes to one concurrency chunk", async () => {
+    let delivered = 0;
+    const result = await readSourceFiles(Array.from({ length: 20 }, (_, index) => `${index}.md`), {
+      read: async () => Buffer.alloc(4),
+      onRead: async () => { delivered += 1; },
+      concurrency: 2
+    });
+
+    expect(delivered).toBe(20);
+    expect(result).not.toHaveProperty("files");
+    expect(result.receipt.peakBufferedBytes).toBeLessThanOrEqual(8);
+  });
+
+  it("rejects a file above the configured per-file memory bound", async () => {
+    await expect(readSourceFiles(["large.md"], {
+      read: async () => Buffer.alloc(5),
+      onRead: async () => undefined,
+      maxFileBytes: 4,
+      maxWaves: 1
+    })).rejects.toSatisfy((caught: unknown) => {
+      expect(caught).toBeInstanceOf(SourceReadError);
+      expect((caught as SourceReadError).receipt.finalErrorClasses).toEqual({ EFBIG: 1 });
+      return true;
+    });
   });
 
   it("fails closed with aggregate evidence and never prints private paths", async () => {
@@ -44,6 +87,7 @@ describe("cloud-backed source reader", () => {
 
     await expect(readSourceFiles([privatePath], {
       read: async () => { throw error; },
+      onRead: async () => undefined,
       hydrate: async () => ({ requested: 0, accepted: 0, failed: 0 }),
       sleep: async () => undefined,
       maxWaves: 2
@@ -54,23 +98,5 @@ describe("cloud-backed source reader", () => {
       expect((caught as SourceReadError).receipt.finalErrorClasses).toEqual({ EACCES: 1 });
       return true;
     });
-  });
-
-  it("treats a timed-out read as retryable without per-file sleeps", async () => {
-    const sleep = vi.fn(async () => undefined);
-    const read = (_path: string, signal: AbortSignal) => new Promise<Buffer>((_resolve, reject) => {
-      signal.addEventListener("abort", () => reject(signal.reason), { once: true });
-    });
-
-    await expect(readSourceFiles(["a.md", "b.md"], {
-      read,
-      hydrate: async (paths) => ({ requested: paths.length, accepted: 0, failed: paths.length }),
-      sleep,
-      timeoutMs: 5,
-      batchDelayMs: 1,
-      maxWaves: 2
-    })).rejects.toBeInstanceOf(SourceReadError);
-
-    expect(sleep).toHaveBeenCalledTimes(1);
   });
 });
