@@ -1,8 +1,8 @@
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { createHash } from "node:crypto";
-import { readFile, writeFile } from "node:fs/promises";
+import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { scanMarkdownSource } from "../src/wiki/import-manifest";
+import { readVerifiedManifestSource, scanMarkdownSource } from "../src/wiki/import-manifest";
 import { evaluateStorageBudget } from "../src/config/budget";
 import { indexDocument } from "../src/wiki/indexer";
 import { CloudflareD1HttpDatabase } from "../src/wiki/d1-http";
@@ -20,7 +20,7 @@ const budget = evaluateStorageBudget(manifest.totalBytes);
 if (budget.state === "blocked") throw new Error("Import exceeds the 10 GiB hard limit");
 const manifestPath = resolve(value("--manifest") ?? ".tmp/import-manifest.json");
 await writeFile(manifestPath, JSON.stringify(manifest, null, 2));
-console.log(JSON.stringify({ mode: apply ? "apply" : "dry-run", files: manifest.entries.length, bytes: manifest.totalBytes, budget: budget.state, manifestPath }));
+console.log(JSON.stringify({ mode: apply ? "apply" : "dry-run", files: manifest.entries.length, bytes: manifest.totalBytes, budget: budget.state, manifestPath, sourceRead: manifest.sourceRead }));
 if (!apply) process.exit(0);
 
 const endpoint = process.env.R2_ENDPOINT;
@@ -33,13 +33,16 @@ const apiToken = process.env.CLOUDFLARE_API_TOKEN;
 if (!endpoint || !accessKeyId || !secretAccessKey || !bucket || !accountId || !databaseId || !apiToken) {
   throw new Error("R2_ENDPOINT, R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET, D1_ACCOUNT_ID, D1_DATABASE_ID and CLOUDFLARE_API_TOKEN are required for --apply");
 }
+const verifiedSource = await readVerifiedManifestSource(manifest);
+console.log(JSON.stringify({ state: "apply-source-preflight-complete", sourceRead: verifiedSource.receipt }));
 const client = new S3Client({ region: "auto", endpoint, credentials: { accessKeyId, secretAccessKey } });
 const db = new CloudflareD1HttpDatabase({ accountId, databaseId, apiToken });
 const manifestHash = createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
 await db.execute("UPDATE index_status SET state = 'indexing', updated_at = ? WHERE id = 1", [new Date().toISOString()]);
 let indexed = 0;
 for (const [index, entry] of manifest.entries.entries()) {
-  const bytes = await readFile(resolve(manifest.sourceRoot, entry.path));
+  const bytes = verifiedSource.files.get(entry.path);
+  if (!bytes) throw new Error("Verified source bytes missing before remote mutation");
   const content = bytes.toString("utf8");
   await client.send(new PutObjectCommand({ Bucket: bucket, Key: `shadow/current/${entry.path}`, Body: bytes, ContentType: "text/markdown; charset=utf-8", Metadata: { sha256: entry.sha256 } }));
   await indexDocument(db, entry.path, content, entry.sha256);

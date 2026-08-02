@@ -33,7 +33,11 @@ npm run import:scan -- --source /path/to/wiki --manifest .tmp/import-manifest.js
 npm run verify:import -- --manifest .tmp/import-manifest.json
 ```
 
-`--apply`에는 R2 S3 endpoint/access key/bucket와 D1 HTTP API용 `D1_ACCOUNT_ID`, `D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN` 환경변수가 모두 필요합니다. Importer는 Markdown을 한 파일씩 읽어 R2 `shadow/current/`에 업로드하고, 같은 파일을 D1 `wiki_pages/wiki_fts`에 projection한 뒤 `index_status=ready`로 전환합니다. D1 projection 중 오류가 나면 완료 상태를 출력하지 않으며, 다음 실행에서 해당 manifest를 재처리해야 합니다. 기본 실행은 dry-run입니다.
+`--apply`에는 R2 S3 endpoint/access key/bucket와 D1 HTTP API용 `D1_ACCOUNT_ID`, `D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN` 환경변수가 모두 필요합니다. 기본 실행은 dry-run입니다.
+
+macOS iCloud placeholder가 `errno=-11`/`EAGAIN`/`ENOENT`를 반환하면 importer는 누락하지 않고 실패 파일 전체에 `brctl download`를 요청한 뒤 5초 단위 batch wave로만 재시도합니다. 파일별 sleep은 없으며, 24개 wave 뒤에도 읽지 못한 파일이 있으면 private path 대신 오류 종류와 개수만 남기고 manifest 생성 전 fail-closed합니다. `sourceRead` receipt의 `discovered/readable/failed`, hydration 합계, wave별 오류 집계가 완료 근거입니다. 이 과정은 로컬 placeholder를 다운로드하지만 Wiki 내용을 수정하지 않습니다.
+
+Scan은 동일한 bytes에서 size와 SHA-256을 함께 계산합니다. `--apply`는 전체 source를 다시 읽어 manifest와 size/hash가 일치하는 bytes를 메모리에 고정한 후에만 D1/R2 mutation을 시작합니다. 하나라도 drift하면 path digest만 기록하고 모든 remote mutation 전에 중단합니다. 검증된 Markdown을 R2 `shadow/current/`에 업로드하고 같은 bytes를 D1 `wiki_pages/wiki_fts`에 projection한 뒤 `index_status=ready`로 전환합니다. D1 projection 중 오류가 나면 완료 상태를 출력하지 않으며, 다음 실행에서 해당 manifest를 재처리해야 합니다.
 
 ## Write activation gate
 
