@@ -189,6 +189,18 @@ describe("exact import verifier", () => {
     expect(receipt.passed).toBe(false);
   });
 
+  it("accepts canonical sqlite_schema formatting around multiline parentheses", () => {
+    const input = normalInput();
+    input.d1.objects = input.d1.objects.map((object) => ({
+      ...object,
+      sql: object.sql?.replaceAll("(", "(\n  ").replaceAll(")", "\n)") ?? null
+    }));
+
+    const receipt = verifyExactImport(input);
+    expect(receipt.d1.schemaReady).toBe(true);
+    expect(receipt.passed).toBe(true);
+  });
+
   it("keeps aggregate receipts and exit codes deterministic across observation order", () => {
     const first = normalInput();
     const second = normalInput();
