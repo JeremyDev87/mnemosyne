@@ -167,7 +167,11 @@ function pairsEqual(
 }
 
 function normalizeSchemaSql(value: string | null): string {
-  return (value ?? "").replace(/\s+/g, " ").trim();
+  return (value ?? "")
+    .replace(/\s+/g, " ")
+    .replace(/\(\s+/g, "(")
+    .replace(/\s+\)/g, ")")
+    .trim();
 }
 
 function schemaObjectsEqual(actual: D1ImportSnapshot["objects"]): boolean {
