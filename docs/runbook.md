@@ -51,8 +51,10 @@ macOS iCloud placeholder가 `errno=-11`/`EAGAIN`/`ENOENT`를 반환하면 import
 
 ## 비용 kill switch
 
-- R2 logical bytes 8 GiB: warning
-- 10 GiB: importer/write 차단
+- 저장 전 `R2_PREFIX` 아래 `current/`, `history/`, `manifests/`, `import-evidence/`의 logical bytes를 모든 R2 list page에 걸쳐 합산합니다. list 오류, 누락·반복 continuation cursor, 30초를 넘긴 usage receipt는 fail-closed `503`입니다.
+- 현재 사용량과 history/current 변경분을 반영한 예상 사용량 중 큰 값이 8 GiB 이상이면 `R2_BUDGET_WARNING`을 반환합니다. 정확히 10 GiB 이상이면 `507`로 차단하며 history/current/D1을 변경하지 않습니다.
+- 허용된 쓰기는 migration `0002_storage_budget_guard.sql`의 D1 lease/reservation을 원자적으로 획득한 한 writer만 수행합니다. 완료된 writer의 D1 `updated_at` 또는 만료 lease 시각보다 이후에 끝난 aggregate scan만 다음 lease를 얻을 수 있어 scan 후 대기 요청의 double-spend를 차단합니다. lease는 60초 후 만료되며, 다음 writer가 fresh aggregate scan으로 만료 reservation을 reconcile합니다. live lease를 획득하지 못한 요청은 R2/D1 mutation 없이 `503`입니다.
+- 로컬 schema 검증: `npx wrangler d1 migrations apply mnemosyne-index --local --config wrangler.local.jsonc`. Remote migration과 write activation은 별도 승인 대상입니다.
 - Workers AI quota 초과: paid upgrade 없이 citation-search fallback
 - 월별 usage receipt 확인 전 paid plan 전환 금지
 
