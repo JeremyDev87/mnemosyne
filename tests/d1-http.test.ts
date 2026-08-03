@@ -40,7 +40,9 @@ describe("Cloudflare D1 HTTP adapter", () => {
   it("reads the complete D1 import snapshot contract", async () => {
     const database: D1QueryDatabase = {
       async query<T>(sql: string): Promise<T[]> {
-        if (sql.includes("sqlite_schema")) return [{ name: "wiki_pages", type: "table" }] as T[];
+        if (sql.includes("sqlite_schema")) {
+          return [{ name: "wiki_pages", type: "table", sql: "CREATE TABLE wiki_pages (path TEXT PRIMARY KEY)" }] as T[];
+        }
         if (sql === "PRAGMA table_info(wiki_pages)") return [{ name: "path", type: "TEXT" }] as T[];
         if (sql === "PRAGMA table_info(wiki_fts)") return [{ name: "path", type: "" }] as T[];
         if (sql === "PRAGMA table_info(index_status)") return [{ name: "state", type: "TEXT" }] as T[];
@@ -51,7 +53,7 @@ describe("Cloudflare D1 HTTP adapter", () => {
     };
 
     await expect(readD1ImportSnapshot(database)).resolves.toEqual({
-      objects: [{ name: "wiki_pages", type: "table" }],
+      objects: [{ name: "wiki_pages", type: "table", sql: "CREATE TABLE wiki_pages (path TEXT PRIMARY KEY)" }],
       wikiPageColumns: [{ name: "path", type: "TEXT" }],
       wikiFtsColumns: [{ name: "path", type: "" }],
       indexStatusColumns: [{ name: "state", type: "TEXT" }],

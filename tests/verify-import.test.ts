@@ -25,10 +25,26 @@ const manifest: ImportManifest = {
 
 const schema = {
   objects: [
-    { name: "wiki_pages", type: "table" },
-    { name: "wiki_fts", type: "table" },
-    { name: "index_status", type: "table" },
-    { name: "wiki_pages_authority_idx", type: "index" }
+    {
+      name: "wiki_pages",
+      type: "table",
+      sql: "CREATE TABLE wiki_pages (path TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, hash TEXT NOT NULL, authority_kind TEXT NOT NULL, authority_priority INTEGER NOT NULL, answerable_as_current INTEGER NOT NULL CHECK (answerable_as_current IN (0, 1)), canonical_path TEXT, status TEXT, source_role TEXT, last_verified TEXT, indexed_at TEXT NOT NULL)"
+    },
+    {
+      name: "wiki_fts",
+      type: "table",
+      sql: "CREATE VIRTUAL TABLE wiki_fts USING fts5(path UNINDEXED, title, body, tokenize = 'unicode61 remove_diacritics 2')"
+    },
+    {
+      name: "index_status",
+      type: "table",
+      sql: "CREATE TABLE index_status (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL CHECK (state IN ('empty', 'indexing', 'ready', 'error')), document_count INTEGER NOT NULL DEFAULT 0, manifest_hash TEXT, updated_at TEXT NOT NULL)"
+    },
+    {
+      name: "wiki_pages_authority_idx",
+      type: "index",
+      sql: "CREATE INDEX wiki_pages_authority_idx ON wiki_pages(answerable_as_current, authority_priority, path)"
+    }
   ],
   wikiPageColumns: [
     { name: "path", type: "TEXT" },
@@ -157,6 +173,19 @@ describe("exact import verifier", () => {
       manifestReady: false,
       exact: false
     });
+    expect(receipt.passed).toBe(false);
+  });
+
+  it("rejects matching schema names and column types when constraints drift", () => {
+    const input = normalInput();
+    input.d1.objects = input.d1.objects.map((object) =>
+      object.name === "wiki_pages"
+        ? { ...object, sql: object.sql?.replace("path TEXT PRIMARY KEY", "path TEXT") ?? null }
+        : object
+    );
+
+    const receipt = verifyExactImport(input);
+    expect(receipt.d1.schemaReady).toBe(false);
     expect(receipt.passed).toBe(false);
   });
 

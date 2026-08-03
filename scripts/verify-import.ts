@@ -72,10 +72,26 @@ interface ProjectionValue {
 }
 
 const REQUIRED_OBJECTS = [
-  ["index_status", "TABLE"],
-  ["wiki_fts", "TABLE"],
-  ["wiki_pages", "TABLE"],
-  ["wiki_pages_authority_idx", "INDEX"]
+  {
+    name: "index_status",
+    type: "TABLE",
+    sql: "CREATE TABLE index_status (id INTEGER PRIMARY KEY CHECK (id = 1), state TEXT NOT NULL CHECK (state IN ('empty', 'indexing', 'ready', 'error')), document_count INTEGER NOT NULL DEFAULT 0, manifest_hash TEXT, updated_at TEXT NOT NULL)"
+  },
+  {
+    name: "wiki_fts",
+    type: "TABLE",
+    sql: "CREATE VIRTUAL TABLE wiki_fts USING fts5(path UNINDEXED, title, body, tokenize = 'unicode61 remove_diacritics 2')"
+  },
+  {
+    name: "wiki_pages",
+    type: "TABLE",
+    sql: "CREATE TABLE wiki_pages (path TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, hash TEXT NOT NULL, authority_kind TEXT NOT NULL, authority_priority INTEGER NOT NULL, answerable_as_current INTEGER NOT NULL CHECK (answerable_as_current IN (0, 1)), canonical_path TEXT, status TEXT, source_role TEXT, last_verified TEXT, indexed_at TEXT NOT NULL)"
+  },
+  {
+    name: "wiki_pages_authority_idx",
+    type: "INDEX",
+    sql: "CREATE INDEX wiki_pages_authority_idx ON wiki_pages(answerable_as_current, authority_priority, path)"
+  }
 ] as const;
 
 const REQUIRED_WIKI_PAGE_COLUMNS = [
@@ -150,8 +166,22 @@ function pairsEqual(
   return JSON.stringify(normalizedPairs(actual)) === JSON.stringify(expected.map(([name, type]) => `${name}\u0000${type}`).sort());
 }
 
+function normalizeSchemaSql(value: string | null): string {
+  return (value ?? "").replace(/\s+/g, " ").trim();
+}
+
+function schemaObjectsEqual(actual: D1ImportSnapshot["objects"]): boolean {
+  const actualValues = actual
+    .map((object) => `${object.name}\u0000${object.type.toUpperCase()}\u0000${normalizeSchemaSql(object.sql)}`)
+    .sort();
+  const expectedValues = REQUIRED_OBJECTS
+    .map((object) => `${object.name}\u0000${object.type}\u0000${normalizeSchemaSql(object.sql)}`)
+    .sort();
+  return JSON.stringify(actualValues) === JSON.stringify(expectedValues);
+}
+
 function schemaIsReady(snapshot: D1ImportSnapshot): boolean {
-  return pairsEqual(snapshot.objects, REQUIRED_OBJECTS) &&
+  return schemaObjectsEqual(snapshot.objects) &&
     pairsEqual(snapshot.wikiPageColumns, REQUIRED_WIKI_PAGE_COLUMNS) &&
     pairsEqual(snapshot.wikiFtsColumns, REQUIRED_WIKI_FTS_COLUMNS) &&
     pairsEqual(snapshot.indexStatusColumns, REQUIRED_INDEX_STATUS_COLUMNS);

@@ -43,6 +43,7 @@ export interface D1QueryDatabase {
 export interface D1SchemaObject {
   name: string;
   type: string;
+  sql: string | null;
 }
 
 export interface D1SchemaColumn {
@@ -132,7 +133,7 @@ export class CloudflareD1HttpDatabase implements IndexDatabase, D1QueryDatabase 
 export async function readD1ImportSnapshot(database: D1QueryDatabase): Promise<D1ImportSnapshot> {
   const [objects, wikiPageColumns, wikiFtsColumns, indexStatusColumns, statuses, rows] = await Promise.all([
     database.query<D1SchemaObject>(
-      "SELECT name, type FROM sqlite_schema WHERE name IN ('wiki_pages', 'wiki_fts', 'index_status', 'wiki_pages_authority_idx') ORDER BY name"
+      "SELECT name, type, sql FROM sqlite_schema WHERE name IN ('wiki_pages', 'wiki_fts', 'index_status', 'wiki_pages_authority_idx') ORDER BY name"
     ),
     database.query<D1SchemaColumn>("PRAGMA table_info(wiki_pages)"),
     database.query<D1SchemaColumn>("PRAGMA table_info(wiki_fts)"),
