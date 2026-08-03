@@ -24,9 +24,37 @@ function json(data: unknown, status = 200): Response {
   return Response.json(data, { status, headers: { "cache-control": "no-store", "x-content-type-options": "nosniff" } });
 }
 
+const MAX_HTTP_BODY_BYTES = 1_200_000;
+
 async function body<T>(request: Request): Promise<T> {
-  if (Number(request.headers.get("content-length") ?? 0) > 1_200_000) throw new Response("Payload too large", { status: 413 });
-  return await request.json() as T;
+  const contentType = request.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  if (contentType !== "application/json") throw new Response("Unsupported content type", { status: 415 });
+
+  const reader = request.body?.getReader();
+  if (!reader) throw new Response("Malformed JSON", { status: 400 });
+  const bytes = new Uint8Array(MAX_HTTP_BODY_BYTES);
+  let byteLength = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    const nextByteLength = byteLength + value.byteLength;
+    if (nextByteLength > MAX_HTTP_BODY_BYTES) {
+      void reader.cancel("Payload too large").catch(() => undefined);
+      throw new Response("Payload too large", { status: 413 });
+    }
+    bytes.set(value, byteLength);
+    byteLength = nextByteLength;
+  }
+
+  try {
+    const parsed: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(0, byteLength)));
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("JSON body must be an object");
+    }
+    return parsed as T;
+  } catch {
+    throw new Response("Malformed JSON", { status: 400 });
+  }
 }
 
 async function handleApi(request: Request, env: Env, url: URL): Promise<Response> {
