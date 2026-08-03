@@ -6,6 +6,53 @@ import { readSourceFiles, type SourceReaderOptions, type SourceReadReceipt } fro
 
 export interface ManifestEntry { path: string; sha256: string; size: number }
 export interface ImportManifest { generatedAt: string; sourceRoot: string; entries: ManifestEntry[]; totalBytes: number; sourceRead: SourceReadReceipt }
+export interface RemoteImportManifest {
+  version: 1;
+  manifestHash: string;
+  entries: ManifestEntry[];
+  totalBytes: number;
+}
+
+function compareManifestPaths(left: ManifestEntry, right: ManifestEntry): number {
+  return left.path < right.path ? -1 : left.path > right.path ? 1 : 0;
+}
+
+function canonicalManifestEntry(entry: ManifestEntry): ManifestEntry {
+  const path = entry.path.normalize("NFC");
+  const segments = path.split("/");
+  if (
+    !path || path !== entry.path || path.startsWith("/") || /^[A-Za-z]:\//.test(path) ||
+    path.includes("\\") || segments.some((segment) => !segment || segment === "." || segment === "..")
+  ) {
+    throw new Error("Manifest contains an unsafe or non-canonical relative path");
+  }
+  if (!Number.isSafeInteger(entry.size) || entry.size < 0) throw new Error("Manifest contains an invalid entry size");
+  if (!/^[a-f0-9]{64}$/.test(entry.sha256)) throw new Error("Manifest contains an invalid SHA-256 digest");
+  return { path, size: entry.size, sha256: entry.sha256 };
+}
+
+export function canonicalManifestEntries(manifest: Pick<ImportManifest, "entries"> | readonly ManifestEntry[]): ManifestEntry[] {
+  const source: readonly ManifestEntry[] = Array.isArray(manifest)
+    ? manifest
+    : (manifest as Pick<ImportManifest, "entries">).entries;
+  const entries = source.map(canonicalManifestEntry).sort(compareManifestPaths);
+  if (new Set(entries.map((entry) => entry.path)).size !== entries.length) throw new Error("Canonical manifest paths must be unique");
+  return entries;
+}
+
+export function calculateManifestHash(manifest: Pick<ImportManifest, "entries"> | readonly ManifestEntry[]): string {
+  return createHash("sha256").update(JSON.stringify(canonicalManifestEntries(manifest))).digest("hex");
+}
+
+export function createRemoteImportManifest(manifest: Pick<ImportManifest, "entries">): RemoteImportManifest {
+  const entries = canonicalManifestEntries(manifest);
+  return {
+    version: 1,
+    manifestHash: calculateManifestHash(entries),
+    entries,
+    totalBytes: entries.reduce((sum, entry) => sum + entry.size, 0)
+  };
+}
 
 export interface VerifiedManifestStage {
   directory: string;
