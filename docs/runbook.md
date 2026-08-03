@@ -33,7 +33,9 @@ npm run import:scan -- --source /path/to/wiki --manifest .tmp/import-manifest.js
 npm run verify:import -- --manifest .tmp/import-manifest.json
 ```
 
-`--apply`에는 R2 S3 endpoint/access key/bucket와 D1 HTTP API용 `D1_ACCOUNT_ID`, `D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN` 환경변수가 모두 필요합니다. 기본 실행은 dry-run입니다.
+`--apply`에는 R2 S3 endpoint/access key/bucket와 D1 HTTP API용 `D1_ACCOUNT_ID`, `D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN` 환경변수가 모두 필요합니다. 기본 실행은 dry-run입니다. Apply는 로컬 root/time/read receipt를 제외한 canonical manifest를 `shadow/manifests/<manifest-hash>.json`과 `shadow/manifests/current.json`에 기록하고, 같은 canonical hash를 D1 `index_status`에 기록합니다.
+
+`verify:import`도 같은 R2/D1 read credential이 필요하며 provider 상태를 변경하지 않습니다. verifier는 current manifest의 hash/count/bytes, `shadow/current/` 전체 key의 exact size/SHA-256 metadata(누락·불일치·extra 포함), D1 migration schema, `index_status=ready`/document count/manifest hash, `wiki_pages` 전체 path/hash projection을 함께 확인합니다. R2만 일치하거나 D1/R2 중 하나가 partial이면 PASS하지 않습니다. JSON receipt는 schema version과 aggregate count/hash/state만 출력하며 private path/content/query/identity/secret을 출력하지 않습니다. 관측 순서와 무관하게 동일 receipt를 만들고 exit `0`은 exact, `1`은 검증 불일치/partial, `2`는 인자·credential·transport 실패입니다. Verifier는 stale/extra 데이터를 삭제하지 않으므로 정리는 별도 승인된 mutation 절차로 수행해야 합니다.
 
 macOS iCloud placeholder가 `errno=-11`/`EAGAIN`/`ENOENT`를 반환하면 importer는 누락하지 않고 실패 파일 전체에 `brctl download`를 요청한 뒤 5초 단위 batch wave로만 재시도합니다. 각 read는 reader의 `AbortSignal` 협조 여부와 무관한 15초 hard deadline을 가지며, 파일별 sleep은 없습니다. 24개 wave 뒤에도 읽지 못한 파일이 있으면 private path 대신 오류 종류와 개수만 남기고 manifest 생성 전 fail-closed합니다. `sourceRead` receipt의 `discovered/readable/failed`, `peakBufferedBytes`, hydration 합계, wave별 오류 집계가 완료 근거입니다. 이 과정은 로컬 placeholder를 다운로드하지만 Wiki 내용을 수정하지 않습니다.
 

@@ -3,7 +3,14 @@ import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { scanMarkdownSource, stageVerifiedManifestSource, verifyManifestEntryBytes } from "../src/wiki/import-manifest";
+import {
+  calculateManifestHash,
+  createRemoteImportManifest,
+  scanMarkdownSource,
+  stageVerifiedManifestSource,
+  verifyManifestEntryBytes,
+  type ImportManifest
+} from "../src/wiki/import-manifest";
 
 describe("streaming import manifest", () => {
   it("includes knowledge markdown while excluding hidden and binary files", async () => {
@@ -63,5 +70,68 @@ describe("streaming import manifest", () => {
     await rm(path);
     await symlink(join(outside, "private.md"), path);
     await expect(stageVerifiedManifestSource(manifest)).rejects.toThrow(/ESYMLINK|EBOUNDARY/);
+  });
+
+  it("keeps the canonical hash stable across generations and local roots", () => {
+    const entries = [
+      { path: "z.md", size: 2, sha256: "b".repeat(64) },
+      { path: "a.md", size: 1, sha256: "a".repeat(64) }
+    ];
+    const first: ImportManifest = {
+      generatedAt: "2026-08-01T00:00:00.000Z",
+      sourceRoot: "/Users/alice/Private Wiki",
+      entries,
+      totalBytes: 3,
+      sourceRead: {
+        discovered: 2,
+        readable: 2,
+        failed: 0,
+        peakBufferedBytes: 2,
+        hydration: { available: false, requested: 0, accepted: 0, failed: 0 },
+        waves: [],
+        finalErrorClasses: {}
+      }
+    };
+    const second: ImportManifest = {
+      ...first,
+      generatedAt: "2026-08-02T12:34:56.000Z",
+      sourceRoot: "/Volumes/another-private-root",
+      entries: [...entries].reverse(),
+      sourceRead: { ...first.sourceRead, peakBufferedBytes: 999 }
+    };
+
+    expect(calculateManifestHash(first)).toBe(calculateManifestHash(second));
+    expect(createRemoteImportManifest(first)).toEqual(createRemoteImportManifest(second));
+  });
+
+  it("projects a deterministic remote manifest without local source metadata", () => {
+    const manifest: ImportManifest = {
+      generatedAt: "2026-08-01T00:00:00.000Z",
+      sourceRoot: "/Users/alice/Private Wiki",
+      entries: [{ path: "docs/public.md", size: 7, sha256: "c".repeat(64) }],
+      totalBytes: 7,
+      sourceRead: {
+        discovered: 1,
+        readable: 1,
+        failed: 0,
+        peakBufferedBytes: 7,
+        hydration: { available: false, requested: 0, accepted: 0, failed: 0 },
+        waves: [],
+        finalErrorClasses: {}
+      }
+    };
+
+    const remote = createRemoteImportManifest(manifest);
+    const serialized = JSON.stringify(remote);
+    expect(remote).toEqual({
+      version: 1,
+      manifestHash: calculateManifestHash(manifest),
+      entries: [{ path: "docs/public.md", size: 7, sha256: "c".repeat(64) }],
+      totalBytes: 7
+    });
+    expect(serialized).not.toContain(manifest.sourceRoot);
+    expect(serialized).not.toContain("sourceRoot");
+    expect(serialized).not.toContain("sourceRead");
+    expect(serialized).not.toContain("generatedAt");
   });
 });

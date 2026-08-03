@@ -1,8 +1,7 @@
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { createHash } from "node:crypto";
 import { writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { scanMarkdownSource, stageVerifiedManifestSource } from "../src/wiki/import-manifest";
+import { createRemoteImportManifest, scanMarkdownSource, stageVerifiedManifestSource } from "../src/wiki/import-manifest";
 import { evaluateStorageBudget } from "../src/config/budget";
 import { indexDocument } from "../src/wiki/indexer";
 import { CloudflareD1HttpDatabase } from "../src/wiki/d1-http";
@@ -38,7 +37,8 @@ console.log(JSON.stringify({ state: "apply-source-preflight-complete", sourceRea
 try {
   const client = new S3Client({ region: "auto", endpoint, credentials: { accessKeyId, secretAccessKey } });
   const db = new CloudflareD1HttpDatabase({ accountId, databaseId, apiToken });
-  const manifestHash = createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
+  const remoteManifest = createRemoteImportManifest(manifest);
+  const manifestHash = remoteManifest.manifestHash;
   await db.execute("UPDATE index_status SET state = 'indexing', updated_at = ? WHERE id = 1", [new Date().toISOString()]);
   let indexed = 0;
   for (const [index, entry] of manifest.entries.entries()) {
@@ -49,7 +49,9 @@ try {
     indexed += 1;
     if ((index + 1) % 100 === 0) console.log(JSON.stringify({ uploaded: index + 1, indexed, total: manifest.entries.length }));
   }
-  await client.send(new PutObjectCommand({ Bucket: bucket, Key: `shadow/manifests/${Date.now()}.json`, Body: JSON.stringify(manifest), ContentType: "application/json" }));
+  const serializedRemoteManifest = JSON.stringify(remoteManifest);
+  await client.send(new PutObjectCommand({ Bucket: bucket, Key: `shadow/manifests/${manifestHash}.json`, Body: serializedRemoteManifest, ContentType: "application/json" }));
+  await client.send(new PutObjectCommand({ Bucket: bucket, Key: "shadow/manifests/current.json", Body: serializedRemoteManifest, ContentType: "application/json" }));
   await db.execute("UPDATE index_status SET state = 'ready', document_count = ?, manifest_hash = ?, updated_at = ? WHERE id = 1", [indexed, manifestHash, new Date().toISOString()]);
   console.log(JSON.stringify({ uploaded: manifest.entries.length, indexed, state: "shadow-import-and-index-complete" }));
 } finally {
