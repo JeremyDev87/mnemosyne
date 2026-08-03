@@ -44,9 +44,7 @@ class FakeLeaseDb {
             const [prefix, owner, expiresAt, logicalBytes, reservedBytes, receiptAt, updatedAt] = params as [string, string, number, number, number, number, number];
             void prefix;
             if (this.row) {
-              const eligible = this.row.owner === null
-                ? receiptAt > this.row.updatedAt
-                : this.row.expiresAt <= updatedAt && receiptAt > this.row.expiresAt;
+              const eligible = this.row.owner === null && receiptAt > this.row.updatedAt;
               if (!eligible) return null;
             }
             this.row = { owner, expiresAt, logicalBytes, reservedBytes, receiptAt, updatedAt };
@@ -144,23 +142,29 @@ describe("D1 storage budget lease/reservation", () => {
     expect(db.row).toMatchObject({ owner: null, logicalBytes: 120, reservedBytes: 0 });
   });
 
-  it("reclaims an expired lease and reconciles stale reservation totals from a fresh scan", async () => {
+  it("never steals an expired lease while its owner may still mutate R2", async () => {
     const db = new FakeLeaseDb();
     db.row = { owner: "dead-writer", expiresAt: 999, logicalBytes: 50, reservedBytes: R2_BLOCK_BYTES, receiptAt: 500, updatedAt: 500 };
-    const lease = await acquireStorageBudgetLease(db as unknown as D1Database, {
-      receipt: receipt(400, 1_000), projectedBytes: 450, owner: "writer-b", now: 1_000
-    });
-    expect(lease.owner).toBe("writer-b");
-    expect(db.row).toMatchObject({ owner: "writer-b", logicalBytes: 400, reservedBytes: 50, receiptAt: 1_000 });
-  });
-
-  it("rejects a pre-expiry scan when reclaiming an expired writer", async () => {
-    const db = new FakeLeaseDb();
-    db.row = { owner: "dead-writer", expiresAt: 1_000, logicalBytes: 50, reservedBytes: 25, receiptAt: 500, updatedAt: 500 };
     await expect(acquireStorageBudgetLease(db as unknown as D1Database, {
-      receipt: receipt(75, 999), projectedBytes: 80, owner: "writer-b", now: 1_000
+      receipt: receipt(400, 1_000), projectedBytes: 450, owner: "writer-b", now: 1_000
     })).rejects.toMatchObject({ code: "LEASE_UNAVAILABLE" });
     expect(db.mutations).toBe(0);
+    expect(db.row).toMatchObject({ owner: "dead-writer", reservedBytes: R2_BLOCK_BYTES });
+  });
+
+  it("admits a fresh scan only after the original owner releases", async () => {
+    const db = new FakeLeaseDb();
+    db.row = { owner: "dead-writer", expiresAt: 1_000, logicalBytes: 50, reservedBytes: 25, receiptAt: 500, updatedAt: 500 };
+    await releaseStorageBudgetLease(db as unknown as D1Database, {
+      prefix: "shadow",
+      owner: "dead-writer",
+      expiresAt: 1_000,
+      receipt: receipt(50, 500),
+      projectedBytes: 75
+    }, 75, 1_001);
+    await expect(acquireStorageBudgetLease(db as unknown as D1Database, {
+      receipt: receipt(75, 1_002), projectedBytes: 80, owner: "writer-b", now: 1_002
+    })).resolves.toMatchObject({ owner: "writer-b", projectedBytes: 80 });
   });
 
   it("prevents double-spend from a scan completed before the prior writer released", async () => {

@@ -144,11 +144,8 @@ export async function acquireStorageBudgetLease(db: D1Database, options: Acquire
       reserved_bytes = excluded.reserved_bytes,
       receipt_at = excluded.receipt_at,
       updated_at = excluded.updated_at
-    WHERE (storage_budget_leases.lease_owner IS NULL
-           AND excluded.receipt_at > storage_budget_leases.updated_at)
-       OR (storage_budget_leases.lease_owner IS NOT NULL
-           AND storage_budget_leases.lease_expires_at <= excluded.updated_at
-           AND excluded.receipt_at > storage_budget_leases.lease_expires_at)
+    WHERE storage_budget_leases.lease_owner IS NULL
+      AND excluded.receipt_at > storage_budget_leases.updated_at
     RETURNING lease_owner AS leaseOwner, lease_expires_at AS leaseExpiresAt`)
       .bind(prefix, owner, expiresAt, options.receipt.bytes, reservedBytes, options.receipt.scannedAt, now)
       .first<LeaseRow>();
