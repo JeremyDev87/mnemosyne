@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { createRemoteImportManifest, type ImportManifest } from "../src/wiki/import-manifest";
-import { verifyExactImport, verificationExitCode, type ExactImportVerificationInput } from "../scripts/verify-import";
+import { verifyExactImport, verificationExitCode, verifyReplayConvergence, type ExactImportVerificationInput } from "../scripts/verify-import";
 
 const entries = [
   { path: "docs/a.md", size: 10, sha256: "a".repeat(64) },
@@ -242,5 +242,25 @@ describe("exact import verifier", () => {
     expect(serialized).not.toContain("query");
     expect(serialized).not.toContain("identity");
     expect(serialized).not.toContain("secret");
+  });
+
+  it("marks only a failed-then-exact replay as converged", () => {
+    const partialInput = normalInput();
+    partialInput.r2Objects = partialInput.r2Objects.slice(0, 1);
+    partialInput.d1.rows = partialInput.d1.rows.slice(0, 1);
+    partialInput.d1.status = { ...partialInput.d1.status!, state: "indexing", documentCount: 1 };
+
+    const partial = verifyExactImport(partialInput);
+    const exact = verifyExactImport(normalInput());
+
+    expect(verifyReplayConvergence(partial, exact)).toEqual({
+      version: 1,
+      state: "converged",
+      passed: true,
+      beforeExact: false,
+      afterExact: true
+    });
+    expect(verifyReplayConvergence(exact, exact)).toMatchObject({ state: "not-converged", passed: false });
+    expect(verifyReplayConvergence(partial, partial)).toMatchObject({ state: "not-converged", passed: false });
   });
 });
