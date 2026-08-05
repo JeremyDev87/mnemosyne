@@ -4,37 +4,21 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "wrangler dev --config wrangler.local.jsonc --persist-to .tmp/wrangler",
-    "seed:local": "tsx scripts/seed-local.ts",
-    "build": "wrangler deploy --dry-run --outdir dist",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "test:e2e": "playwright test",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build",
-    "import:scan": "tsx scripts/import-wiki.ts --dry-run",
-    "verify:import": "tsx scripts/verify-import.ts",
-    "verify:preview-config": "tsx scripts/verify-preview-config.ts --config wrangler.jsonc",
-    "verify:preview-smoke": "tsx scripts/verify-preview-smoke.ts",
-    "verify:budget": "tsx scripts/verify-budget.ts"
+    "check": "npm run lint && npm run typecheck && npm test"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.864.0",
-    "diff": "^8.0.2",
-    "jose": "^6.0.12",
     "yaml": "^2.8.1"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^5.20260730.1",
     "@eslint/js": "^9.32.0",
-    "@playwright/test": "^1.54.2",
     "@types/node": "^24.1.0",
     "eslint": "^9.32.0",
-    "tsx": "^4.20.3",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.38.0",
-    "vitest": "^3.2.4",
-    "wrangler": "^4.27.0"
+    "vitest": "^3.2.4"
   }
 }
