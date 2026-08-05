@@ -267,6 +267,28 @@ export function verificationExitCode(receipt: Pick<ExactImportVerificationReceip
   return receipt.passed ? 0 : 1;
 }
 
+export interface ReplayConvergenceReceipt {
+  version: 1;
+  state: "converged" | "not-converged";
+  passed: boolean;
+  beforeExact: boolean;
+  afterExact: boolean;
+}
+
+export function verifyReplayConvergence(
+  before: Pick<ExactImportVerificationReceipt, "passed">,
+  after: Pick<ExactImportVerificationReceipt, "passed">
+): ReplayConvergenceReceipt {
+  const passed = !before.passed && after.passed;
+  return {
+    version: RECEIPT_VERSION,
+    state: passed ? "converged" : "not-converged",
+    passed,
+    beforeExact: before.passed,
+    afterExact: after.passed
+  };
+}
+
 async function readRemoteManifest(client: S3Client, bucket: string): Promise<RemoteImportManifest | null> {
   try {
     const response = await client.send(new GetObjectCommand({ Bucket: bucket, Key: CURRENT_MANIFEST_KEY }));

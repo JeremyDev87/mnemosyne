@@ -15,6 +15,8 @@
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "import:scan": "tsx scripts/import-wiki.ts --dry-run",
     "verify:import": "tsx scripts/verify-import.ts",
+    "verify:preview-config": "tsx scripts/verify-preview-config.ts --config wrangler.jsonc",
+    "verify:preview-smoke": "tsx scripts/verify-preview-smoke.ts",
     "verify:budget": "tsx scripts/verify-budget.ts"
   },
   "dependencies": {
