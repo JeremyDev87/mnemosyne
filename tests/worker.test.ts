@@ -104,6 +104,7 @@ function expectNoDownstreamCalls(calls: Counters): void {
 }
 
 const BODY_ROUTES = [
+  { method: "POST", path: "/api/wiki/search" },
   { method: "POST", path: "/api/wiki/ask" },
   { method: "POST", path: "/api/ops/validate" },
   { method: "PUT", path: "/api/ops/doc" }
@@ -121,7 +122,11 @@ describe("default worker fetch routes", () => {
 
   it("preserves authentication before protected route work", async () => {
     const { env, calls } = createEnv();
-    const response = await fetchApi(new Request("https://mnemosyne.test/api/wiki/search?q=memory"), env);
+    const response = await fetchApi(new Request("https://mnemosyne.test/api/wiki/search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "memory" })
+    }), env);
 
     expect(response.status).toBe(403);
     expectNoDownstreamCalls(calls);
@@ -129,12 +134,61 @@ describe("default worker fetch routes", () => {
 
   it("searches through D1 for an authenticated request", async () => {
     const { env, calls } = createEnv();
-    const response = await fetchApi(apiRequest("/api/wiki/search?q=memory"), env);
+    const response = await fetchApi(apiRequest("/api/wiki/search", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ query: "memory" })
+    }), env);
 
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ query: "memory", results: [] });
+    await expect(response.json()).resolves.toEqual({ results: [] });
     expect(calls.d1).toBe(1);
     expect(calls.r2).toBe(0);
+    expect(calls.ai).toBe(0);
+  });
+
+  it("never accepts a search query in the URL", async () => {
+    const { env, calls } = createEnv();
+    const response = await fetchApi(apiRequest("/api/wiki/search?q=private-query"), env);
+
+    expect(response.status).toBe(404);
+    expectNoDownstreamCalls(calls);
+  });
+
+  it("keeps ask in citation-search mode even when an AI binding is present", async () => {
+    const { env, calls } = createEnv();
+    env.AI_ENABLED = "true";
+    env.WIKI_INDEX = {
+      prepare() {
+        calls.d1 += 1;
+        return {
+          bind() { return this; },
+          async all() {
+            return { results: [{
+              path: "docs/current.md",
+              title: "Current",
+              excerpt: "evidence",
+              authority_kind: "brain-p1",
+              authority_priority: 10,
+              answerable_as_current: 1,
+              canonical_path: null,
+              status: "current",
+              source_role: "canonical",
+              last_verified: "2026-08-04"
+            }] };
+          }
+        };
+      }
+    } as unknown as D1Database;
+    const response = await fetchApi(apiRequest("/api/wiki/ask", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ question: "memory" })
+    }), env);
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({ answer: null, mode: "citation-search", citations: [{ path: "docs/current.md" }] });
+    expect(calls.d1).toBe(1);
     expect(calls.ai).toBe(0);
   });
 

@@ -18,10 +18,14 @@
 - `CF_ACCESS_AUD`
 - `ALLOWED_EMAILS`
 - `AUTH_MODE=access`
+- `AI_ENABLED=false` — Workers AI binding과 외부 모델 처리를 허용하지 않음
 - `R2_PREFIX=shadow` — cutover 전 유지
 - `WRITE_ENABLED=false` — disposable write gate 전 유지
+- `workers_dev=false`, `preview_urls=false` — 공개 fallback URL 비활성화
 
 Secret 값은 repository, 문서, 로그에 기록하지 않습니다. R2 bucket public access와 `workers.dev` 공개 route를 허용하지 않습니다.
+
+검색어는 URL query string이 아닌 bounded `POST /api/wiki/search` JSON body로만 전달합니다. `npm run verify:preview-config`는 privacy gate를 검사하며 provider provision 전 placeholder D1 ID와 route 누락은 `provider-pending`으로 구분합니다. 실제 배포 전에는 `npm run verify:preview-config -- --require-provider`가 추가로 통과해야 합니다.
 
 ## Shadow import
 
@@ -57,7 +61,7 @@ macOS iCloud placeholder가 `errno=-11`/`EAGAIN`/`ENOENT`를 반환하면 import
 - 현재 사용량과 history/current 변경분을 반영한 예상 사용량 중 큰 값이 8 GiB 이상이면 `R2_BUDGET_WARNING`을 반환합니다. 정확히 10 GiB 이상이면 `507`로 차단하며 history/current/D1을 변경하지 않습니다.
 - 허용된 쓰기는 migration `0002_storage_budget_guard.sql`의 D1 lease/reservation을 원자적으로 획득한 한 writer만 수행합니다. 완료된 writer의 D1 `updated_at`보다 이후에 끝난 aggregate scan만 다음 lease를 얻을 수 있어 scan 후 대기 요청의 double-spend를 차단합니다. 60초 expiry는 진단 정보이며 런타임 writer는 만료 lease를 자동 탈취하지 않습니다. 원래 owner가 release하지 못하면 쓰기는 fail-closed `503`으로 유지하고, 진행 중인 요청이 없음을 운영자가 확인한 뒤 별도 복구해야 합니다.
 - 로컬 schema 검증: `npx wrangler d1 migrations apply mnemosyne-index --local --config wrangler.local.jsonc`. Remote migration과 write activation은 별도 승인 대상입니다.
-- Workers AI quota 초과: paid upgrade 없이 citation-search fallback
+- Workers AI: preview에서는 binding 자체를 두지 않고 citation-search만 사용
 - 월별 usage receipt 확인 전 paid plan 전환 금지
 
 ## Rollback
