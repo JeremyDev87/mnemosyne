@@ -1,81 +1,31 @@
-# Mnemosyne 운영 Runbook
+# Mnemosyne 운영 경계
 
-## 상태 분리
+## 현재 상태
 
-1. **implementation GREEN** — unit/lint/type/build가 로컬에서 통과
-2. **integration verified** — local D1/R2 fixture와 browser E2E 통과
-3. **provider provisioned** — 승인 후 private R2, D1, Access application 생성
-4. **shadow imported** — 승인 후 Markdown manifest를 R2 `shadow/current/`에 업로드
-5. **preview deployed** — 승인된 URL에서 Access deny/pass, 검색, read-only Dashboard 검증
-6. **write enabled** — disposable object의 history/If-Match/readback/restore가 통과한 뒤 세 ledger에만 활성화
-7. **canonical cutover** — 별도 승인 후 getwiki/setwiki adapter와 canonical owner 전환
+현재 저장소는 provider-neutral 도메인·검증 코어만 포함합니다. HTTP runtime, authentication, database, object/blob storage, preview, production deployment는 아직 연결되지 않았습니다.
 
-앞 단계의 PASS는 뒤 단계의 승인이 아닙니다.
-
-## Production 필수 설정
-
-- `CF_ACCESS_TEAM_DOMAIN`
-- `CF_ACCESS_AUD`
-- `ALLOWED_EMAILS`
-- `AUTH_MODE=access`
-- `AI_ENABLED=false` — Workers AI binding과 외부 모델 처리를 허용하지 않음
-- `R2_PREFIX=shadow` — cutover 전 유지
-- `WRITE_ENABLED=false` — disposable write gate 전 유지
-- `workers_dev=false`, `preview_urls=false` — 공개 fallback URL 비활성화
-
-Secret 값은 repository, 문서, 로그에 기록하지 않습니다. R2 bucket public access와 `workers.dev` 공개 route를 허용하지 않습니다.
-
-검색어는 URL query string이 아닌 bounded `POST /api/wiki/search` JSON body로만 전달합니다. `npm run verify:preview-config`는 privacy gate를 검사하며 provider provision 전 placeholder D1 ID와 route 누락은 `provider-pending`으로 구분합니다. 실제 배포 전에는 `npm run verify:preview-config -- --require-provider`가 추가로 통과해야 합니다.
-
-## Shadow import
+따라서 현재 유효한 검증은 다음 하나입니다.
 
 ```bash
-WIKI_SOURCE_ROOT=/path/to/wiki npm run import:scan
-npm run verify:budget -- --manifest .tmp/import-manifest.json
-# 별도 remote migration 승인 후에만:
-npm run import:scan -- --source /path/to/wiki --manifest .tmp/import-manifest.json --apply
-npm run verify:import -- --manifest .tmp/import-manifest.json
+npm install
+npm run check
 ```
 
-`--apply`에는 R2 S3 endpoint/access key/bucket와 D1 HTTP API용 `D1_ACCOUNT_ID`, `D1_DATABASE_ID`, `CLOUDFLARE_API_TOKEN` 환경변수가 모두 필요합니다. 기본 실행은 dry-run입니다. Apply는 로컬 root/time/read receipt를 제외한 canonical manifest를 `shadow/manifests/<manifest-hash>.json`과 `shadow/manifests/current.json`에 기록하고, 같은 canonical hash를 D1 `index_status`에 기록합니다.
+`npm run check`의 PASS는 코어 모듈의 정적 분석·타입 검사·unit test가 통과했다는 뜻일 뿐, preview/production 실행이나 외부 리소스 연결을 의미하지 않습니다.
 
-`verify:import`도 같은 R2/D1 read credential이 필요하며 provider 상태를 변경하지 않습니다. verifier는 current manifest의 hash/count/bytes, `shadow/current/` 전체 key의 exact size/SHA-256 metadata(누락·불일치·extra 포함), D1 migration schema, `index_status=ready`/document count/manifest hash, `wiki_pages` 전체 path/hash projection을 함께 확인합니다. R2만 일치하거나 D1/R2 중 하나가 partial이면 PASS하지 않습니다. JSON receipt는 schema version과 aggregate count/hash/state만 출력하며 private path/content/query/identity/secret을 출력하지 않습니다. 관측 순서와 무관하게 동일 receipt를 만들고 exit `0`은 exact, `1`은 검증 불일치/partial, `2`는 인자·credential·transport 실패입니다. Verifier는 stale/extra 데이터를 삭제하지 않으므로 정리는 별도 승인된 mutation 절차로 수행해야 합니다.
+## 안전 경계
 
-Partial import 재실행은 최초 `not-exact` receipt와 재실행 후 `exact` receipt를 함께 비교해 `converged`로 판정합니다. 두 번 모두 exact이거나 두 번째도 partial이면 replay 수렴 증거가 아닙니다.
+- 외부 계정·시크릿·DNS·배포·원격 데이터 변경은 이 단계에서 수행하지 않습니다.
+- provider adapter가 구현되기 전에는 HTTP API와 write activation을 주장하지 않습니다.
+- source reader/import manifest는 입력 파일의 bounded read, symlink 경계, size/SHA-256 drift 검증만 담당합니다.
+- iCloud 원본을 읽거나 import하는 실행 경로는 별도 승인·검증 작업으로 남겨 둡니다.
 
-## Preview smoke evidence
+## 다음 작업의 완료 조건
 
-`npm run verify:preview-smoke`는 `PREVIEW_BASE_URL`, `PREVIEW_DEPLOYMENT_ID`, `PREVIEW_CANARY_QUERY`, Cloudflare Access service-token 환경변수를 입력으로 받습니다. 무인증 요청 차단, 인증된 bounded POST canary 검색, `WRITE_ENABLED=false` PUT 거부, UUID 형식 deployment ID를 검사합니다. 출력은 status/count/boolean/deployment ID만 포함하며 URL, query, result path/content, identity, Access credential은 출력하지 않습니다. 이 harness는 provider를 생성·배포·import하지 않으며 live 실행은 preview deploy 이후 별도 승인 단계입니다.
+Vercel 이행은 다음 순서로 별도 검증해야 합니다.
 
-macOS iCloud placeholder가 `errno=-11`/`EAGAIN`/`ENOENT`를 반환하면 importer는 누락하지 않고 실패 파일 전체에 `brctl download`를 요청한 뒤 5초 단위 batch wave로만 재시도합니다. 각 read는 reader의 `AbortSignal` 협조 여부와 무관한 15초 hard deadline을 가지며, 파일별 sleep은 없습니다. 24개 wave 뒤에도 읽지 못한 파일이 있으면 private path 대신 오류 종류와 개수만 남기고 manifest 생성 전 fail-closed합니다. `sourceRead` receipt의 `discovered/readable/failed`, `peakBufferedBytes`, hydration 합계, wave별 오류 집계가 완료 근거입니다. 이 과정은 로컬 placeholder를 다운로드하지만 Wiki 내용을 수정하지 않습니다.
-
-각 파일은 `O_NOFOLLOW` descriptor와 canonical root/inode 검증을 통과해야 하며, 파일당 8 MiB를 초과하면 `EFBIG`로 차단합니다. Importer는 concurrency 8인 한 chunk만 메모리에 유지하므로 총 10 GiB corpus budget과 프로세스 메모리 한계를 분리합니다. Scan은 chunk를 즉시 해제하면서 동일한 bytes에서 size와 SHA-256을 함께 계산합니다. `--apply`는 전체 source를 다시 읽어 manifest와 size/hash가 일치하는 bytes만 권한 제한 임시 디렉터리에 staging한 후에만 D1/R2 mutation을 시작합니다. 하나라도 symlink boundary 위반이나 drift가 있으면 aggregate error/path digest만 기록하고 staging을 삭제한 뒤 모든 remote mutation 전에 중단합니다. 업로드 중에도 staged Markdown을 한 파일씩 읽어 R2 `shadow/current/`와 D1 `wiki_pages/wiki_fts`에 projection하고, 성공·실패와 관계없이 stage를 정리합니다. D1 projection 중 오류가 나면 완료 상태를 출력하지 않으며, 다음 실행에서 해당 manifest를 재처리해야 합니다.
-
-## Write activation gate
-
-- Access 무인증 `401`, 비허용 identity `403`
-- `raw/*`, P0/P1, 일반 domain path `403`
-- invalid scope/status, 근거 없는 `done` `422`
-- stale ETag `412`, no-op `409`
-- history object 존재, current metadata와 SHA-256 readback 일치
-- D1 실패 시 canonical은 유지하고 `index_pending` 표시
-- restore drill이 동일 hash를 복구
-
-## 비용 kill switch
-
-- 저장 전 `R2_PREFIX` 아래 `current/`, `history/`, `manifests/`, `import-evidence/`의 logical bytes를 모든 R2 list page에 걸쳐 합산합니다. list 오류, 누락·반복 continuation cursor, 30초를 넘긴 usage receipt는 fail-closed `503`입니다.
-- 현재 사용량과 history/current 변경분을 반영한 예상 사용량 중 큰 값이 8 GiB 이상이면 `R2_BUDGET_WARNING`을 반환합니다. 정확히 10 GiB 이상이면 `507`로 차단하며 history/current/D1을 변경하지 않습니다.
-- 허용된 쓰기는 migration `0002_storage_budget_guard.sql`의 D1 lease/reservation을 원자적으로 획득한 한 writer만 수행합니다. 완료된 writer의 D1 `updated_at`보다 이후에 끝난 aggregate scan만 다음 lease를 얻을 수 있어 scan 후 대기 요청의 double-spend를 차단합니다. 60초 expiry는 진단 정보이며 런타임 writer는 만료 lease를 자동 탈취하지 않습니다. 원래 owner가 release하지 못하면 쓰기는 fail-closed `503`으로 유지하고, 진행 중인 요청이 없음을 운영자가 확인한 뒤 별도 복구해야 합니다.
-- 로컬 schema 검증: `npx wrangler d1 migrations apply mnemosyne-index --local --config wrangler.local.jsonc`. Remote migration과 write activation은 별도 승인 대상입니다.
-- Workers AI: preview에서는 binding 자체를 두지 않고 citation-search만 사용
-- 월별 usage receipt 확인 전 paid plan 전환 금지
-
-## Rollback
-
-1. `WRITE_ENABLED=false`로 먼저 쓰기를 차단합니다.
-2. affected `current/<path>`의 `baseHash/changeId` metadata를 읽습니다.
-3. `history/<path>/<baseHash>.md`를 disposable prefix에 복원합니다.
-4. SHA-256 readback과 Personal Ops validation 후에만 current에 conditional restore합니다.
-5. D1 projection을 재생성하고 `index_status=ready`를 확인합니다.
-
-Source rollback은 기록한 base SHA에서 생성한 `git diff --binary` patch로 검증합니다. 배포·provider·remote data rollback은 각각 별도 승인 대상입니다.
+1. runtime·authentication·database·blob storage의 실제 선택과 계약 확정
+2. provider-neutral 코어에 어댑터와 HTTP entrypoint 연결
+3. 로컬 unit/type/lint와 실제 preview smoke 검증
+4. rollback·readback·privacy·write gate 검증
+5. 계정·시크릿·도메인·배포·data import·write activation을 각각 별도 승인 후 실행

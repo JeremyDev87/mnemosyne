@@ -8,7 +8,7 @@ function retryableReadError(): NodeJS.ErrnoException {
   return error;
 }
 
-describe("cloud-backed source reader", () => {
+describe("bounded source reader", () => {
   it("hydrates retryable files once and retries them in batch waves", async () => {
     const attempts = new Map<string, number>();
     const delivered = new Map<string, string>();

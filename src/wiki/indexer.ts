@@ -9,6 +9,12 @@ export interface IndexDatabase {
   batch(statements: PreparedStatementLike[]): Promise<unknown>;
 }
 
+export interface SearchDatabase {
+  prepare(sql: string): {
+    bind(...values: unknown[]): { all(): Promise<{ results: unknown[] }> };
+  };
+}
+
 export interface SearchResult {
   path: string;
   title: string;
@@ -48,7 +54,7 @@ export async function indexDocument(db: IndexDatabase, path: string, content: st
   ]);
 }
 
-export async function searchWiki(db: D1Database, rawQuery: string, limit = 10): Promise<SearchResult[]> {
+export async function searchWiki(db: SearchDatabase, rawQuery: string, limit = 10): Promise<SearchResult[]> {
   const query = toFtsQuery(rawQuery);
   if (!query) return [];
   const safeLimit = Math.max(1, Math.min(limit, 20));
