@@ -5,6 +5,7 @@ export type SnapshotState = "pending" | "finalized" | "active" | "rejected";
 
 export interface SnapshotEntry {
   readonly documentId: string;
+  readonly relativePath: string;
   readonly state: SnapshotEntryState;
   readonly sha256: string;
   readonly bytes: number;
@@ -36,6 +37,12 @@ function contentDigest(content: string): string {
 }
 
 function validateEntry(entry: SnapshotEntry): void {
+  const normalizedPath = entry.relativePath.normalize("NFC").replaceAll("\\", "/");
+  const pathParts = normalizedPath.split("/");
+  const hasControlCharacter = [...normalizedPath].some((character) => character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127);
+  if (!entry.relativePath || normalizedPath !== entry.relativePath || normalizedPath.startsWith("/") || hasControlCharacter || pathParts.some((part) => !part || part === "." || part === "..") || /^[A-Za-z]:\//.test(normalizedPath)) throw new Error("invalid snapshot relative path");
+  const normalizedProvenance = entry.provenance.normalize("NFC");
+  if (!entry.provenance || normalizedProvenance !== entry.provenance || [...normalizedProvenance].some((character) => character.charCodeAt(0) <= 31 || character.charCodeAt(0) === 127)) throw new Error("invalid entry provenance");
   if (!/^[a-f0-9]{64}$/.test(entry.sha256)) throw new Error("invalid entry hash");
   if (entry.sha256 !== contentDigest(entry.content)) throw new Error("entry content hash mismatch");
   if (!Number.isSafeInteger(entry.bytes) || entry.bytes !== Buffer.byteLength(entry.content, "utf8")) throw new Error("entry byte length mismatch");
@@ -43,10 +50,9 @@ function validateEntry(entry: SnapshotEntry): void {
 
 export function snapshotTreeHash(entries: readonly SnapshotEntry[]): string {
   const canonical = [...entries]
-    .sort((a, b) => a.documentId.localeCompare(b.documentId, "en"))
-    .map((entry) => `${entry.documentId}\u0000${entry.state}\u0000${entry.sha256}\u0000${entry.bytes}`)
-    .join("\n");
-  return contentDigest(canonical);
+    .sort((a, b) => a.documentId.localeCompare(b.documentId, "en") || a.relativePath.localeCompare(b.relativePath, "en") || a.provenance.localeCompare(b.provenance, "en"))
+    .map((entry) => [entry.documentId, entry.relativePath, entry.state, entry.sha256, entry.bytes, entry.provenance]);
+  return contentDigest(JSON.stringify(canonical));
 }
 
 export class SnapshotLedger {
@@ -55,6 +61,7 @@ export class SnapshotLedger {
   private nextSequence = 1;
 
   createPending(input: Omit<SnapshotGeneration, "id" | "sequence" | "state" | "entries">): SnapshotGeneration {
+    if (!/^[a-f0-9]{64}$/.test(input.policyDigest)) throw new Error("invalid policy digest");
     if (!Number.isSafeInteger(input.expectedCount) || input.expectedCount < 0) throw new Error("invalid expected entry count");
     if (!Number.isSafeInteger(input.expectedBytes) || input.expectedBytes < 0) throw new Error("invalid expected byte count");
     if (!/^[a-f0-9]{64}$/.test(input.expectedTreeHash)) throw new Error("invalid expected tree hash");

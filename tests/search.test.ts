@@ -12,8 +12,8 @@ describe("truthful read-only search state", () => {
   });
   it("searches synthetic entries without exposing raw query telemetry", () => {
     const hits = searchSyntheticEntries([
-      { documentId: "a", state: "fresh", sha256: "a".repeat(64), bytes: 5, content: "한국어 일정 정리", provenance: "synthetic" },
-      { documentId: "b", state: "quarantined", sha256: "b".repeat(64), bytes: 5, content: "한국어 비공개", provenance: "synthetic" }
+      { documentId: "a", relativePath: "domains/personal-ops/a.md", state: "fresh", sha256: "a".repeat(64), bytes: 5, content: "한국어 일정 정리", provenance: "synthetic" },
+      { documentId: "b", relativePath: "domains/personal-ops/b.md", state: "quarantined", sha256: "b".repeat(64), bytes: 5, content: "한국어 비공개", provenance: "synthetic" }
     ], "한국어 일정");
     expect(hits.map((hit) => hit.documentId)).toEqual(["a"]);
     expect(privacySafeSearchTelemetry("한국어 일정", hits.length)).toEqual({ queryLengthBucket: "4-12", resultCountBucket: "1-5" });

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { bodyDigest, createDeviceKeyPair, InMemoryDeviceKeyRegistry, InMemoryNonceStore, signDeviceRequest, verifyDeviceRequest } from "../src/sync/device-auth";
 import { sanitizeSyncEntry } from "../src/sync/policy";
+import { createSyncBatch } from "../src/sync/protocol";
 
 const nonce = "nonce-00000000000001";
 
@@ -16,6 +17,12 @@ describe("default-deny sync policy", () => {
     expect(() => sanitizeSyncEntry({ documentId: "escape", relativePath: "domains/personal-ops/../raw.md", content: "x" })).toThrow(/unsafe/);
     expect(() => sanitizeSyncEntry({ documentId: "evil", relativePath: "domains/personal-ops/tasks\u0000.md", content: "x" })).toThrow(/unsafe/);
     expect(() => sanitizeSyncEntry({ documentId: "evil", relativePath: "domains/personal-ops/tasks.md", content: "x", state: "freshx" as never })).toThrow(/state/);
+  });
+  it("requires a valid policy digest even for empty batches", () => {
+    expect(() => createSyncBatch("generation", [])).toThrow(/policy digest/);
+    expect(createSyncBatch("generation", [], "a".repeat(64)).policyDigest).toBe("a".repeat(64));
+    const entry = sanitizeSyncEntry({ documentId: "doc", relativePath: "domains/personal-ops/tasks.md", content: "x" });
+    expect(() => createSyncBatch("generation", [{ ...entry, policyDigest: "invalid" }])).toThrow(/policy digest/);
   });
 });
 
