@@ -36,6 +36,19 @@ describe("append-only snapshot ledger", () => {
     const pending = ledger.createPending({ policyDigest: "a".repeat(64), expectedCount: 1, expectedBytes: entry.bytes, expectedTreeHash: snapshotTreeHash([entry]) });
     expect(() => ledger.addEntry(pending.id, { ...entry, relativePath: "../raw.md" })).toThrow(/path/);
   });
+  it("rejects duplicate relative paths across document IDs", () => {
+    const ledger = new SnapshotLedger();
+    const first = makeEntry("doc-1", "첫번째", "domains/personal-ops/shared.md");
+    const second = makeEntry("doc-2", "두번째", "domains/personal-ops/shared.md");
+    const pending = ledger.createPending({
+      policyDigest: "a".repeat(64),
+      expectedCount: 2,
+      expectedBytes: first.bytes + second.bytes,
+      expectedTreeHash: snapshotTreeHash([first, second])
+    });
+    ledger.addEntry(pending.id, first);
+    expect(() => ledger.addEntry(pending.id, second)).toThrow(/duplicate snapshot relative path/);
+  });
   it("rejects non-NFC path and provenance before hashing", () => {
     const pathEntry = makeEntry("doc-nfd-path", "x", "domains/personal-ops/cafe\u0301.md");
     const pathLedger = new SnapshotLedger();
