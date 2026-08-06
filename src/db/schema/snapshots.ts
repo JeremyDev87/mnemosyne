@@ -15,6 +15,7 @@ export const snapshotGeneration = pgTable("snapshot_generation", {
 export const snapshotEntry = pgTable("snapshot_entry", {
   generationId: uuid("generation_id").notNull().references(() => snapshotGeneration.id),
   documentId: varchar("document_id", { length: 256 }).notNull(),
+  relativePath: varchar("relative_path", { length: 512 }).notNull(),
   state: varchar("state", { length: 16 }).notNull(),
   sha256: varchar("sha256", { length: 64 }).notNull(),
   bytes: integer("bytes").notNull(),

@@ -9,7 +9,7 @@ const golden = [
   ["작업", "doc-16"], ["상태", "doc-17"], ["보류", "doc-18"], ["완료", "doc-19"], ["다음 액션", "doc-20"]
 ] as const;
 
-const entries: SnapshotEntry[] = golden.map(([query, documentId]) => ({ documentId, state: "fresh", sha256: "a".repeat(64), bytes: Buffer.byteLength(query), content: `${query} 개인 운영 기록`, provenance: "synthetic" }));
+const entries: SnapshotEntry[] = golden.map(([query, documentId]) => ({ documentId, relativePath: `domains/personal-ops/${documentId}.md`, state: "fresh", sha256: "a".repeat(64), bytes: Buffer.byteLength(query), content: `${query} 개인 운영 기록`, provenance: "synthetic" }));
 
 describe("Korean search golden benchmark", () => {
   it("keeps top-5 recall at 0.90 or better on 20 synthetic queries", () => {

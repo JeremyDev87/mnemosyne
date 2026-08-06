@@ -16,6 +16,8 @@ describe("owner authorization contract", () => {
   });
   it("fails closed for malformed owner configuration", () => {
     expect(() => readRuntimeConfig({ NODE_ENV: "test", OWNER_GITHUB_ACCOUNT_ID: "owner@example.com" })).toThrow(/immutable numeric/);
+    expect(() => requireOwner({ ...session, githubAccountId: "owner@example.com" }, "12345", 1_000)).toThrow(/NOT_OWNER/);
+    expect(() => requireOwner(session, "owner@example.com", 1_000)).toThrow(/owner id/);
   });
   it("marks protected responses private and uncached", () => {
     expect(privateNoStoreHeaders().get("Cache-Control")).toBe("private, no-store");
