@@ -73,8 +73,9 @@ export class SnapshotLedger {
   addEntry(id: string, entry: SnapshotEntry): void {
     const generation = this.getMutable(id);
     if (generation.state !== "pending") throw new Error("snapshot is immutable after finalize");
-    if (generation.entries.some((candidate) => candidate.documentId === entry.documentId)) throw new Error("duplicate snapshot entry");
     validateEntry(entry);
+    if (generation.entries.some((candidate) => candidate.documentId === entry.documentId)) throw new Error("duplicate snapshot entry");
+    if (generation.entries.some((candidate) => candidate.relativePath === entry.relativePath)) throw new Error("duplicate snapshot relative path");
     generation.entries.push(structuredClone(entry));
   }
 
