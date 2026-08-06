@@ -4,8 +4,10 @@ coverage/
 .tmp/
 dist/
 build/
+.next/
 playwright-report/
 test-results/
+tsconfig.tsbuildinfo
 .env
 .env.*
 !.env.example

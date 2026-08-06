@@ -1,41 +1,60 @@
 # Mnemosyne
 
-개인의 지식과 업무를 이해하고 관리하는 **privacy-first personal operating system**입니다. 이름은 그리스 신화의 기억의 여신에서 가져왔습니다.
+개인의 지식과 업무를 이해하고 관리하는 **privacy-first personal operating system**입니다.
 
-## 현재 상태
+## 현재 구현 상태
 
-이 브랜치는 기존 provider 결합 런타임을 제거하고, Vercel 이행 전 재사용 가능한 도메인·검증 코어만 남긴 상태입니다. HTTP 진입점, 인증 어댑터, 저장소 어댑터, 배포 설정은 다음 Vercel 이행 작업에서 다시 구현해야 하므로 현재 `dev`·`build`·배포 명령은 제공하지 않습니다.
+현재 로컬 candidate는 **Next.js App Router + TypeScript + Tailwind CSS v4 + source-generated shadcn/ui** 기반의 synthetic read-only shell입니다.
 
-## 보존된 코어
+- Next.js `16.3.0`, React `19.2.8`
+- Tailwind CSS `4.3.3`, shadcn CLI `4.16.1`
+- Node.js 24 CI 기준
+- `/` public shell, `/login` owner entrypoint, `/api/health` no-store synthetic health
+- 보호 데이터·실제 Wiki·OAuth·Neon 원격 연결·Vercel 배포는 아직 비활성
 
-- Brain authority 판정과 안전한 FTS query 컴파일
-- `tasks / schedule / inbox` Personal Ops 파싱·정합성·편집 allowlist
-- bounded source reader와 SHA-256 import manifest 검증
-- provider-neutral SQLite-shaped indexing/search contract
-- 정적 Dashboard 자산
+## 보안·데이터 계약
+
+- `requireOwner()`는 이메일/username이 아닌 immutable GitHub account ID만 허용합니다.
+- owner ID가 없거나 세션이 만료/불일치하면 fail-closed합니다.
+- 보호 응답은 `private, no-store`이며 실제 원문을 synthetic UI에 넣지 않습니다.
+- snapshot ledger는 `pending → finalized → active`만 허용하고 count/bytes/tree-hash 검증 및 monotonic CAS를 적용합니다.
+- sync policy는 승인된 Personal Ops Markdown prefix만 허용하고 경로 escape, 비승인 namespace, 3 MiB 초과 항목을 거부합니다.
+- Mac device sync 계약은 브라우저 세션과 분리된 Ed25519 서명, timestamp window, nonce replay 방지를 사용합니다.
+- 검색 telemetry에는 raw query·본문·경로를 기록하지 않고 길이/result-count bucket만 남깁니다.
 
 ## 로컬 검증
 
 ```bash
-npm install
+npm ci
 npm run check
+npm run build
+npm run test:e2e
 ```
 
-`npm run check`는 lint, TypeScript typecheck, provider-neutral unit test를 실행합니다. 외부 계정, 원격 데이터, iCloud 원본, 배포에는 접근하지 않습니다.
+`npm run test:e2e`는 로컬 Next dev server를 띄워 public shell과 `/api/health`의 실제 Chromium surface를 검증합니다. 외부 계정, 원격 데이터, iCloud 원본, provider API, DNS, 배포에는 접근하지 않습니다.
 
 ## 주요 경로
 
+- `app/` — Next.js App Router shell과 health route
+- `components/ui/` — shadcn 스타일 source-generated primitives
+- `src/auth/` — owner-ID authorization contract
+- `src/snapshots/` — append-only generation/CAS contract
+- `src/sync/` — default-deny policy와 Ed25519 device request contract
+- `src/search/` — truthful lifecycle state와 synthetic search/telemetry contract
+- `src/wiki/` — authority, source-reader, manifest validation core
 - `src/personal-ops/` — ledger parsing, integrity rules, edit allowlist
-- `src/wiki/authority.ts` — authority metadata/compiler
-- `src/wiki/indexer.ts` — storage adapter가 주입되는 indexing/search contract
-- `src/wiki/import-manifest.ts` — source manifest와 byte/hash drift 검증
-- `src/wiki/source-reader.ts` — bounded local source reader
-- `public/` — Dashboard 정적 자산
-- `tests/` — provider-neutral core regression tests
+- `tests/`, `e2e/` — unit/contract/Chromium evidence
 
-## 다음 Vercel 이행 경계
+## 외부 운영 경계
 
-다음 작업에서 별도로 결정·구현·검증해야 하는 항목은 HTTP runtime, authentication, relational database, object/blob storage, iCloud import execution, preview/production deployment, rollback, 그리고 write activation입니다. 이 브랜치에서는 해당 외부 리소스 생성·시크릿 설정·DNS·배포·데이터 import를 수행하지 않습니다.
+다음 작업은 별도 승인 후에만 수행합니다.
+
+1. Better Auth/GitHub OAuth dependency resolution 및 OAuth app 설정
+2. Neon project/branch/secret 생성과 migration 실행
+3. Vercel project/env 연결 및 preview deploy
+4. iCloud allowlist 확정과 sanitized real-data import
+5. production domain/cutover/rollback
+6. write/change-request 활성화
 
 ## 라이선스
 

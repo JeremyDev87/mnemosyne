@@ -2,30 +2,41 @@
 
 ## 현재 상태
 
-현재 저장소는 provider-neutral 도메인·검증 코어만 포함합니다. HTTP runtime, authentication, database, object/blob storage, preview, production deployment는 아직 연결되지 않았습니다.
+현재 candidate는 Next.js App Router 기반 synthetic read-only shell과 provider-neutral 보안/데이터 계약을 포함합니다. 외부 OAuth, Neon, iCloud 원본, Vercel project, preview/production deploy는 연결하지 않았습니다.
 
-따라서 현재 유효한 검증은 다음 하나입니다.
+실제 개인 데이터는 화면·테스트·로그에 포함하지 않습니다.
+
+## 검증 명령
 
 ```bash
-npm install
+npm ci
 npm run check
+npm run build
+npm run test:e2e
 ```
 
-`npm run check`의 PASS는 코어 모듈의 정적 분석·타입 검사·unit test가 통과했다는 뜻일 뿐, preview/production 실행이나 외부 리소스 연결을 의미하지 않습니다.
+현재 `npm run check`는 ESLint, TypeScript, Vitest contract tests를 실행합니다. `build`는 Next production compile/prerender, `test:e2e`는 로컬 Chromium에서 public shell과 no-store health route를 실행합니다.
+
+## 계약 경계
+
+- `src/auth/owner.ts`: owner ID 재인가와 private/no-store 응답 경계
+- `src/snapshots/ledger.ts`: append-only pending/finalized/active, completeness, tree hash, monotonic CAS
+- `src/sync/policy.ts`: default-deny path/size policy와 sanitized content
+- `src/sync/device-auth.ts`: Ed25519 timestamp/nonce/body digest request authentication
+- `src/search/state.ts`: configuration/no-active/empty/fresh/stale/incomplete/rejected 구분
 
 ## 안전 경계
 
-- 외부 계정·시크릿·DNS·배포·원격 데이터 변경은 이 단계에서 수행하지 않습니다.
-- provider adapter가 구현되기 전에는 HTTP API와 write activation을 주장하지 않습니다.
-- source reader/import manifest는 입력 파일의 bounded read, symlink 경계, size/SHA-256 drift 검증만 담당합니다.
-- iCloud 원본을 읽거나 import하는 실행 경로는 별도 승인·검증 작업으로 남겨 둡니다.
+- provider 계정·시크릿·DNS·원격 DB·원격 Wiki·배포를 이 단계에서 변경하지 않습니다.
+- Better Auth 설치는 optional peer dependency 충돌이 확인되어 `--legacy-peer-deps`로 강행하지 않습니다. 실제 auth adapter 연결은 별도 dependency-resolution gate입니다.
+- snapshot rollback은 낮은 sequence pointer 재활성화가 아니라 known-good 내용을 더 높은 sequence로 재게시하는 방식만 허용합니다.
+- DB query 실패를 빈 목록으로 변환하지 않으며, 실제 import는 allowlist·freshness·sanitization 검증 전까지 차단합니다.
 
-## 다음 작업의 완료 조건
+## 다음 승인 lane
 
-Vercel 이행은 다음 순서로 별도 검증해야 합니다.
-
-1. runtime·authentication·database·blob storage의 실제 선택과 계약 확정
-2. provider-neutral 코어에 어댑터와 HTTP entrypoint 연결
-3. 로컬 unit/type/lint와 실제 preview smoke 검증
-4. rollback·readback·privacy·write gate 검증
-5. 계정·시크릿·도메인·배포·data import·write activation을 각각 별도 승인 후 실행
+1. Better Auth dependency graph와 GitHub account-ID OAuth contract 검증
+2. local PostgreSQL/Drizzle migration integration test
+3. synthetic machine ingest + CAS HTTP adapter
+4. Vercel preview-only deploy/readback
+5. fresh Wiki generation 이후 sanitized subset preview import
+6. production/domain/write activation 별도 승인
