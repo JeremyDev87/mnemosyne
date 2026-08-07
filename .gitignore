@@ -7,6 +7,9 @@ build/
 .next/
 playwright-report/
 test-results/
+.webpack/
+out/
+out-e2e/
 tsconfig.tsbuildinfo
 .env
 .env.*

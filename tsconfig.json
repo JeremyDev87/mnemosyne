@@ -7,7 +7,7 @@
     "baseUrl": ".",
     "paths": { "@/*": ["./*"] },
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
-    "types": ["node"],
+    "types": ["node", "react", "react-dom"],
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitOverride": true,
@@ -20,22 +20,15 @@
     "noEmit": true,
     "incremental": true,
     "esModuleInterop": true,
-    "isolatedModules": true,
-    "plugins": [{ "name": "next" }]
+    "isolatedModules": true
   },
   "include": [
-    "next-env.d.ts",
-    "app/**/*.ts",
-    "app/**/*.tsx",
-    "components/**/*.ts",
-    "components/**/*.tsx",
-    "lib/**/*.ts",
     "src/**/*.ts",
+    "src/**/*.tsx",
     "scripts/**/*.ts",
     "tests/**/*.ts",
-    "playwright.config.ts",
-    ".next/types/**/*.ts",
-    ".next/dev/types/**/*.ts"
+    "e2e/**/*.ts",
+    "playwright.config.ts"
   ],
-  "exclude": ["node_modules"]
+  "exclude": ["node_modules", "out", ".webpack"]
 }

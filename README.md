@@ -1,60 +1,51 @@
 # Mnemosyne
 
-개인의 지식과 업무를 이해하고 관리하는 **privacy-first personal operating system**입니다.
+개인의 지식과 업무를 다루는 **local-first macOS 데스크톱 애플리케이션**입니다.
 
-## 현재 구현 상태
+## 현재 제품 경계
 
-현재 로컬 candidate는 **Next.js App Router + TypeScript + Tailwind CSS v4 + source-generated shadcn/ui** 기반의 synthetic read-only shell입니다.
+- Electron renderer → 좁은 typed preload IPC → Electron main → 검증된 Dobby Wiki snapshot
+- macOS 단일 사용자, text-only, read-only
+- `health`, `search`, `getDocument`, `personalOps` 네 capability만 renderer에 노출
+- iCloud Wiki 원본은 직접 읽거나 수정하지 않습니다. 서명된 immutable generation의 copied Markdown만 size·SHA-256·realpath 검증 후 읽습니다.
+- v2 pointer는 P-256 attestation을 통해 manifest, authority, Wikimap index를 묶습니다. key identity·minimum sequence·sidecar digest가 다르면 fail-closed합니다.
+- 비정규 NFC 경로, case-fold collision, stale/quarantined entry, symlink, digest drift도 fail-closed합니다.
+- Dobby CLI 결과는 검색 path hint로만 사용하며 title, domain, authority는 서명된 문서에서 다시 계산합니다.
 
-- Next.js `16.3.0`, React `19.2.8`
-- Tailwind CSS `4.3.3`, shadcn CLI `4.16.1`
-- Node.js 24 CI 기준
-- `/` public shell, `/login` owner entrypoint, `/api/health` no-store synthetic health
-- 보호 데이터·실제 Wiki·OAuth·Neon 원격 연결·Vercel 배포는 아직 비활성
+## 활성화 상태
 
-## 보안·데이터 계약
+Authenticity consumer contract와 ephemeral-key packaged E2E는 구현되어 있습니다. 하지만 production trust anchor, Keychain anti-replay state, trusted producer command는 아직 provisioning되지 않았으므로 일반 package는 Wiki를 `unavailable`로 유지합니다. unsigned schema v1이나 PATH의 임의 `dobby-wiki`로 fallback하지 않습니다.
 
-- `requireOwner()`는 이메일/username이 아닌 immutable GitHub account ID만 허용합니다.
-- owner ID가 없거나 세션이 만료/불일치하면 fail-closed합니다.
-- 보호 응답은 `private, no-store`이며 실제 원문을 synthetic UI에 넣지 않습니다.
-- snapshot ledger는 `pending → finalized → active`만 허용하고 count/bytes/tree-hash 검증 및 monotonic CAS를 적용합니다.
-- sync policy는 승인된 Personal Ops Markdown prefix만 허용하고 경로 escape, 비승인 namespace, 3 MiB 초과 항목을 거부합니다.
-- Mac device sync 계약은 브라우저 세션과 분리된 Ed25519 서명, timestamp window, nonce replay 방지를 사용합니다.
-- 검색 telemetry에는 raw query·본문·경로를 기록하지 않고 길이/result-count bucket만 남깁니다.
+Live 활성화에는 재현 가능한 canonical producer source, Secure Enclave attestor, stable signed app/helper identity, Keychain의 public-key fingerprint와 minimum sequence가 필요합니다. 테스트용 private key는 실행 중 메모리에서만 생성하며 source/package/artifact에 저장하지 않습니다.
+
+## 명시적 비범위
+
+외부 웹 서비스·원격 API·ingest·tunnel·socket daemon·DB, Wiki 쓰기, production signing·공증·DMG 배포·자동 업데이트는 포함하지 않습니다.
 
 ## 로컬 검증
 
 ```bash
 npm ci
 npm run check
-npm run build
+npm run package
 npm run test:e2e
 ```
 
-`npm run test:e2e`는 로컬 Next dev server를 띄워 public shell과 `/api/health`의 실제 Chromium surface를 검증합니다. 외부 계정, 원격 데이터, iCloud 원본, provider API, DNS, 배포에는 접근하지 않습니다.
+`npm run package`는 local ad-hoc signed `.app`을 생성합니다. `npm run test:e2e`는 compile-time test build에서 임시 P-256 identity와 격리 snapshot을 만들고, 패키지된 macOS 앱의 signature/digest/replay gate, renderer UI, preload capability allowlist, Node 권한 부재를 확인합니다. 실제 개인 Wiki 원문이나 경로를 fixture·로그·artifact에 넣지 않습니다.
 
 ## 주요 경로
 
-- `app/` — Next.js App Router shell과 health route
-- `components/ui/` — shadcn 스타일 source-generated primitives
-- `src/auth/` — owner-ID authorization contract
-- `src/snapshots/` — append-only generation/CAS contract
-- `src/sync/` — default-deny policy와 Ed25519 device request contract
-- `src/search/` — truthful lifecycle state와 synthetic search/telemetry contract
-- `src/wiki/` — authority, source-reader, manifest validation core
-- `src/personal-ops/` — ledger parsing, integrity rules, edit allowlist
-- `tests/`, `e2e/` — unit/contract/Chromium evidence
+- `src/electron/` — main, preload, IPC, renderer 보안 경계
+- `src/renderer/` — local dashboard UI
+- `src/wiki/dobby-{adapter,snapshot}.ts` — immutable snapshot read adapter
+- `src/wiki/snapshot-attestation.ts` — P-256 signature, key identity, anti-replay consumer contract
+- `src/wiki/{authority,import-manifest,source-reader}.ts` — provenance/allowlist 검증 코어
+- `src/personal-ops/` — read-only summary parser
+- `tests/`, `e2e/` — contract 및 packaged-app evidence
 
-## 외부 운영 경계
+## 운영 경계
 
-다음 작업은 별도 승인 후에만 수행합니다.
-
-1. Better Auth/GitHub OAuth dependency resolution 및 OAuth app 설정
-2. Neon project/branch/secret 생성과 migration 실행
-3. Vercel project/env 연결 및 preview deploy
-4. iCloud allowlist 확정과 sanitized real-data import
-5. production domain/cutover/rollback
-6. write/change-request 활성화
+별도 명시 승인이 필요한 작업: Dobby snapshot producer/runtime 변경, Secure Enclave·Keychain provisioning, iCloud Wiki write, production signing/notarization/distribution/auto-update, 원격 서비스 또는 GitHub 작업.
 
 ## 라이선스
 
