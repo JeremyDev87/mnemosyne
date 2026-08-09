@@ -10,6 +10,7 @@ test-results/
 .webpack/
 out/
 out-e2e/
+native/bin/
 tsconfig.tsbuildinfo
 .env
 .env.*

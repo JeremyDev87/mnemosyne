@@ -14,9 +14,11 @@
     "check": "npm run lint && npm run typecheck && npm test",
     "dev": "electron-forge start",
     "start": "electron-forge start",
-    "package": "electron-forge package",
-    "package:e2e": "MNEMOSYNE_E2E_BUILD=1 electron-forge package",
-    "make": "electron-forge make",
+    "build:trust-helper": "bash scripts/build-trust-helper.sh",
+    "verify:local-trust-gate": "bash scripts/verify-local-adhoc-trust-gate.sh",
+    "package": "npm run build:trust-helper && electron-forge package",
+    "package:e2e": "npm run build:trust-helper && MNEMOSYNE_E2E_BUILD=1 electron-forge package",
+    "make": "npm run build:trust-helper && electron-forge make",
     "test:e2e": "npm run package:e2e && playwright test"
   },
   "dependencies": {
