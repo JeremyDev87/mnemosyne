@@ -123,20 +123,63 @@ def load_manifest() -> tuple[dict, dict, Path]:
     return current, manifest, Path(canonical_value).expanduser().resolve()
 
 
-def source_content_digest(root: Path, expected: dict[str, tuple[str, int]]) -> str:
+def _metadata(info: os.stat_result) -> tuple[int, ...]:
+    return (
+        info.st_dev,
+        info.st_ino,
+        info.st_mode,
+        info.st_uid,
+        info.st_gid,
+        info.st_size,
+        info.st_mtime_ns,
+        info.st_ctime_ns,
+        getattr(info, "st_birthtime_ns", 0),
+        getattr(info, "st_flags", 0),
+    )
+
+
+def _canonical_paths(root: Path) -> list[Path]:
+    paths = [root]
+    for directory, directories, files in os.walk(root, followlinks=False):
+        paths.extend(Path(directory) / name for name in (*directories, *files))
+    return sorted(paths, key=lambda path: os.fsencode("." if path == root else path.relative_to(root).as_posix()))
+
+
+def canonical_tree_digest(root: Path, expected: dict[str, tuple[str, int]]) -> str:
     if not root.is_dir():
         raise RuntimeError("canonical Wiki root is unavailable")
     digest = hashlib.sha256()
-    for relative in sorted(expected):
-        expected_sha, expected_size = expected[relative]
-        path = root / Path(relative)
-        info = path.stat()
-        if info.st_size != expected_size:
-            raise RuntimeError("canonical file size differs from manifest")
-        actual_sha = sha256_file(path)
-        if actual_sha != expected_sha:
-            raise RuntimeError("canonical file content differs from manifest")
-        digest.update(f"{relative}\0{expected_sha}\0{expected_size}\n".encode("utf-8"))
+    seen_manifest_paths: set[str] = set()
+    for path in _canonical_paths(root):
+        relative = "." if path == root else path.relative_to(root).as_posix()
+        before = path.lstat()
+        if stat.S_ISREG(before.st_mode):
+            kind = "file"
+            content = sha256_file(path)
+            manifest_entry = expected.get(relative)
+            if manifest_entry is not None:
+                expected_sha, expected_size = manifest_entry
+                if before.st_size != expected_size or content != expected_sha:
+                    raise RuntimeError("canonical file differs from manifest")
+                seen_manifest_paths.add(relative)
+        elif stat.S_ISDIR(before.st_mode):
+            kind = "directory"
+            content = ""
+        elif stat.S_ISLNK(before.st_mode):
+            kind = "symlink"
+            content = os.readlink(path)
+            if relative in expected:
+                raise RuntimeError("manifest file is not a regular canonical file")
+        else:
+            raise RuntimeError("canonical tree contains an unsupported entry")
+        after = path.lstat()
+        if _metadata(before) != _metadata(after):
+            raise RuntimeError("canonical tree changed while fingerprinting")
+        digest.update(os.fsencode(relative))
+        digest.update(f"\0{kind}\0{_metadata(before)}\0{content}\n".encode("utf-8"))
+    missing = set(expected) - seen_manifest_paths
+    if missing:
+        raise RuntimeError("manifest file is missing from canonical tree")
     return digest.hexdigest()
 
 
@@ -203,14 +246,14 @@ def main() -> int:
     command = executable()
     current, manifest, canonical_root = load_manifest()
     expected = manifest["files"]
-    source_before = source_content_digest(canonical_root, expected)
+    source_before = canonical_tree_digest(canonical_root, expected)
     state_before = state_tree_digest(STATE_ROOT)
     health = run(command, "health")
     validate_health(health)
     searches = [run(command, "-n", "5", "search", query) for query in QUERIES]
     for search in searches:
         validate_search(search)
-    source_after = source_content_digest(canonical_root, expected)
+    source_after = canonical_tree_digest(canonical_root, expected)
     state_after = state_tree_digest(STATE_ROOT)
     source_unchanged = source_before == source_after
     state_unchanged = state_before == state_after
