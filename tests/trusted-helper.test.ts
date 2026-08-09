@@ -35,7 +35,7 @@ describe("trusted Secure Enclave helper seam", () => {
     expect(() => assertTrustedBundleLayout("/Applications/Copy.app/Contents/Resources/mnemosyne-trust-helper", "/Applications/Mnemosyne.app/Contents/MacOS/Mnemosyne")).toThrow(/co-bundled/i);
   });
 
-  it("requires an absolute, owner-only regular executable path", async () => {
+  it.skipIf(process.platform !== "darwin")("requires an absolute, owner-only regular executable path", async () => {
     const root = await mkdtemp(join(tmpdir(), "mnemosyne-helper-"));
     roots.push(root);
     const helper = join(root, "helper");
