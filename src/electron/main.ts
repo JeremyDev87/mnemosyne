@@ -4,6 +4,7 @@ import { registerIpcHandlers } from "./ipc-handlers";
 import { isAllowedNavigation, secureWebPreferences } from "./security";
 import { DobbyWikiAdapter } from "../wiki/dobby-adapter";
 import type { SnapshotTrustAnchor } from "../wiki/snapshot-attestation";
+import { loadProvisionedTrustAnchor } from "../trust/trust-anchor";
 import { rendererEntryUrl, serveRendererAsset } from "./renderer-protocol";
 
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -16,6 +17,7 @@ protocol.registerSchemesAsPrivileged([{
 
 let mainWindow: BrowserWindow | null = null;
 let disposeIpc: (() => void) | undefined;
+let windowCreation: Promise<BrowserWindow> | undefined;
 
 function wikiStateRoot(): string {
   if (__MNEMOSYNE_E2E_BUILD__) {
@@ -26,8 +28,10 @@ function wikiStateRoot(): string {
   return join(app.getPath("home"), ".hermes", "state", "wiki-retrieval");
 }
 
-function wikiTrustAnchor(): SnapshotTrustAnchor | undefined {
-  if (!__MNEMOSYNE_E2E_BUILD__) return undefined;
+async function wikiTrustAnchor(): Promise<SnapshotTrustAnchor | undefined> {
+  if (!__MNEMOSYNE_E2E_BUILD__) {
+    return loadProvisionedTrustAnchor(join(process.resourcesPath, "mnemosyne-trust-helper"));
+  }
   const keyId = process.env.MNEMOSYNE_E2E_TRUST_KEY_ID;
   const publicKeyPem = process.env.MNEMOSYNE_E2E_TRUST_PUBLIC_KEY;
   const sequenceText = process.env.MNEMOSYNE_E2E_TRUST_ACCEPTED_SEQUENCE;
@@ -46,7 +50,7 @@ function wikiCommand(): string | undefined {
   return resolve(command);
 }
 
-function createMainWindow(): BrowserWindow {
+async function createMainWindow(): Promise<BrowserWindow> {
   const window = new BrowserWindow({
     width: 1180,
     height: 780,
@@ -68,15 +72,35 @@ function createMainWindow(): BrowserWindow {
     if (mainWindow === window) mainWindow = null;
   });
 
-  const adapter = new DobbyWikiAdapter({
-    stateRoot: wikiStateRoot(),
-    trustAnchor: wikiTrustAnchor(),
-    command: wikiCommand()
-  });
-  disposeIpc?.();
-  disposeIpc = registerIpcHandlers(ipcMain, window.webContents.id, adapter);
-  void window.loadURL(rendererEntryUrl);
-  return window;
+  try {
+    const adapter = new DobbyWikiAdapter({
+      stateRoot: wikiStateRoot(),
+      trustAnchor: await wikiTrustAnchor(),
+      command: wikiCommand()
+    });
+    disposeIpc?.();
+    disposeIpc = registerIpcHandlers(ipcMain, window.webContents.id, adapter);
+    void window.loadURL(rendererEntryUrl);
+    return window;
+  } catch (error) {
+    if (!window.isDestroyed()) window.close();
+    throw error;
+  }
+}
+
+function ensureMainWindow(): Promise<BrowserWindow> {
+  if (mainWindow && !mainWindow.isDestroyed()) return Promise.resolve(mainWindow);
+  if (windowCreation) return windowCreation;
+  windowCreation = createMainWindow()
+    .then((window) => {
+      if (window.isDestroyed()) throw new Error("Main window closed during initialization");
+      mainWindow = window;
+      return window;
+    })
+    .finally(() => {
+      windowCreation = undefined;
+    });
+  return windowCreation;
 }
 
 app.whenReady().then(() => {
@@ -84,9 +108,12 @@ app.whenReady().then(() => {
   Menu.setApplicationMenu(null);
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));
   session.defaultSession.setPermissionCheckHandler(() => false);
-  mainWindow = createMainWindow();
+  void ensureMainWindow().catch(() => {
+    if (!__MNEMOSYNE_E2E_BUILD__) console.error("Mnemosyne window initialization failed");
+    else app.quit();
+  });
   app.on("activate", () => {
-    if (mainWindow === null) mainWindow = createMainWindow();
+    void ensureMainWindow().catch(() => console.error("Mnemosyne window activation failed"));
   });
 });
 

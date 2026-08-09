@@ -10,6 +10,7 @@ describe("Electron package entry contract", () => {
     const forgeConfig = await readFile(new URL("../forge.config.cjs", import.meta.url), "utf8");
     expect(packageJson.main).toBe(".webpack/main");
     expect(packageJson.type).not.toBe("module");
+    expect((packageJson.scripts as Record<string, string>).make).toBe("npm run build:trust-helper && electron-forge make");
     expect(forgeConfig).toContain("[FuseV1Options.GrantFileProtocolExtraPrivileges]: false");
     expect(forgeConfig).toContain("strictlyRequireAllFuses: true");
     expect(forgeConfig).toContain("[FuseV1Options.WasmTrapHandlers]: true");

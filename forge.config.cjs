@@ -6,13 +6,16 @@ const { MakerZIP } = require("@electron-forge/maker-zip");
 const { flipFuses, FuseVersion, FuseV1Options } = require("@electron/fuses");
 const isE2EBuild = process.env.MNEMOSYNE_E2E_BUILD === "1";
 const productName = isE2EBuild ? "Mnemosyne-E2E-UNSAFE" : "Mnemosyne";
+const appIdentifier = isE2EBuild ? "com.jeremywinchester.mnemosyne.e2e-unsafe" : "com.jeremywinchester.mnemosyne";
+const helperIdentifier = "com.jeremywinchester.mnemosyne.trust-helper";
 
 module.exports = {
   outDir: isE2EBuild ? "out-e2e" : "out",
   packagerConfig: {
     asar: true,
+    extraResource: ["native/bin/mnemosyne-trust-helper"],
     executableName: productName,
-    appBundleId: isE2EBuild ? "com.jeremywinchester.mnemosyne.e2e-unsafe" : "com.jeremywinchester.mnemosyne",
+    appBundleId: appIdentifier,
     name: productName
   },
   rebuildConfig: {},
@@ -37,7 +40,12 @@ module.exports = {
           [FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
           [FuseV1Options.WasmTrapHandlers]: true
         });
-        execFileSync("/usr/bin/codesign", ["--force", "--deep", "--sign", "-", appPath], { stdio: "inherit" });
+        execFileSync("/usr/bin/xattr", ["-cr", appPath], { stdio: "inherit" });
+        const helperPath = join(appPath, "Contents", "Resources", "mnemosyne-trust-helper");
+        if (!existsSync(helperPath)) throw new Error(`Packaged trust helper is missing at ${helperPath}`);
+        execFileSync("/usr/bin/codesign", ["--force", "--sign", "-", "--identifier", helperIdentifier, helperPath], { stdio: "inherit" });
+        execFileSync("/usr/bin/codesign", ["--force", "--deep", "--sign", "-", "--identifier", appIdentifier, appPath], { stdio: "inherit" });
+        execFileSync("/usr/bin/codesign", ["--verify", "--deep", "--strict", appPath], { stdio: "inherit" });
       }
     }
   },
