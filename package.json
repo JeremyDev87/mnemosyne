@@ -9,7 +9,8 @@
   "scripts": {
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "test": "vitest run && npm run test:canary",
+    "test:canary": "python3 -m unittest discover -s scripts -p 'test_dobby_read_only_canary.py'",
     "test:watch": "vitest",
     "check": "npm run lint && npm run typecheck && npm test",
     "dev": "electron-forge start",
