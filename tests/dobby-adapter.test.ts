@@ -2,11 +2,20 @@ import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { DobbyWikiAdapter } from "../src/wiki/dobby-adapter";
+import { DobbyWikiAdapter, buildVerifiedExcerpt } from "../src/wiki/dobby-adapter";
 import { createTestSigningIdentity, sha256, writeAttestedGeneration } from "./helpers/signed-snapshot";
 
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
+
+describe("verified search excerpts", () => {
+  it("normalizes whitespace and applies the bounded length to an already parsed body", () => {
+    expect(buildVerifiedExcerpt("# 제목\n\n검증된\t본문")).toBe("# 제목 검증된 본문");
+    expect(buildVerifiedExcerpt("  \n  \t본문  ")).toBe("본문");
+    expect(buildVerifiedExcerpt("x".repeat(501))).toHaveLength(500);
+    expect(buildVerifiedExcerpt("", 0)).toBe("");
+  });
+});
 
 async function stateFixture() {
   const root = await mkdtemp(join(tmpdir(), "mnemosyne-adapter-"));
@@ -49,9 +58,10 @@ describe("Dobby read-only adapter", () => {
     const search = await adapter.search({ query: "일정", limit: 5 });
     expect(search.hits).toHaveLength(1);
     expect(search.hits[0]?.documentId).toMatch(/^[a-f0-9]{64}$/u);
-    expect(search.hits[0]).toMatchObject({ title: "오늘 일정", domain: "personal-ops", authority: "current" });
+    expect(search.hits[0]).toMatchObject({ title: "오늘 일정", domain: "personal-ops", authority: "current", excerpt: "# 오늘 일정 검증된 본문" });
     expect(JSON.stringify(search)).not.toContain(fixture.relativePath);
     expect(JSON.stringify(search)).not.toContain("FORGED CLI TITLE");
+    expect(JSON.stringify(search)).not.toContain("authority: current");
 
     const document = await adapter.getDocument({ documentId: search.hits[0]!.documentId });
     expect(document).toMatchObject({ title: "오늘 일정", authority: "current" });

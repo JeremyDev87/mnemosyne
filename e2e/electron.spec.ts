@@ -165,6 +165,16 @@ async function waitForRendererReady(port: number, readLogs: () => string): Promi
   throw new Error(`Packaged app renderer/preload was not ready: ${String(lastError)}\n${readLogs()}`);
 }
 
+async function waitForUiExcerpt(target: CdpTarget): Promise<string> {
+  const deadline = Date.now() + 20_000;
+  while (Date.now() < deadline) {
+    const excerpt = await evaluate<string | null>(target, "document.querySelector('.result-list .excerpt')?.textContent ?? null");
+    if (excerpt) return excerpt;
+    await new Promise((resolveDelay) => setTimeout(resolveDelay, 100));
+  }
+  throw new Error("Renderer did not display the verified search excerpt");
+}
+
 async function stop(appProcess: ChildProcess): Promise<void> {
   if (appProcess.exitCode !== null || appProcess.killed) return;
   appProcess.kill("SIGTERM");
@@ -219,19 +229,39 @@ test("packaged app consumes an isolated verified fixture through only typed IPC"
     const workflow = await evaluate<{
       health: { status: string; snapshotState: string; documentCount: number };
       ops: { tasks: { total: number }; schedule: { total: number }; inbox: { total: number } };
-      search: { hits: Array<{ documentId: string; title: string }> };
+      search: { hits: Array<{ documentId: string; title: string; excerpt: string }> };
       document: { body: string; title: string; documentId: string; authority: string };
       dashboardHeading?: string;
       requireType: string;
       processType: string;
       apiKeys: string[];
+      cssLinkHref: string | null;
+      cssRuleCount: number;
+      csp: string | null;
     }>(target, `
       (async () => {
         const health = await window.mnemosyne.health();
         const ops = await window.mnemosyne.personalOps();
         const search = await window.mnemosyne.search({ query: "fixture", limit: 1 });
         const loaded = await window.mnemosyne.getDocument({ documentId: search.hits[0].documentId });
-        return { health, ops, search, document: loaded, dashboardHeading: window.document.querySelector("h1")?.textContent, requireType: typeof window.require, processType: typeof window.process, apiKeys: Object.keys(window.mnemosyne ?? {}).sort() };
+        const cssLink = window.document.querySelector('link[rel="stylesheet"]');
+        const cssSheet = Array.from(window.document.styleSheets).find((sheet) => sheet.href?.endsWith("main_window.css"));
+        let cssRuleCount = -1;
+        try { cssRuleCount = cssSheet?.cssRules.length ?? 0; } catch { /* cross-origin CSS is not accepted */ }
+        const csp = window.document.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute("content") ?? null;
+        return {
+          health,
+          ops,
+          search,
+          document: loaded,
+          dashboardHeading: window.document.querySelector("h1")?.textContent,
+          requireType: typeof window.require,
+          processType: typeof window.process,
+          apiKeys: Object.keys(window.mnemosyne ?? {}).sort(),
+          cssLinkHref: cssLink?.getAttribute("href") ?? null,
+          cssRuleCount,
+          csp
+        };
       })()
     `);
     if (!workflow.health) throw new Error(`Fixture IPC workflow returned an incomplete value: ${JSON.stringify(workflow)}\n${launched.logs()}`);
@@ -239,11 +269,27 @@ test("packaged app consumes an isolated verified fixture through only typed IPC"
     expect(workflow.ops).toMatchObject({ tasks: { total: 0 }, schedule: { total: 0 }, inbox: { total: 0 } });
     expect(workflow.search.hits).toHaveLength(1);
     expect(workflow.search.hits[0]?.title).toBe("Fixture document");
+    expect(workflow.search.hits[0]?.excerpt).toBe("# Fixture document fixture-derived verified body");
     expect(workflow.document).toMatchObject({ title: "Fixture document", body: fixture.documentBody, authority: "canonical" });
     expect(workflow.document.documentId).toMatch(/^[a-f0-9]{64}$/u);
     expect({ dashboardHeading: workflow.dashboardHeading, requireType: workflow.requireType, processType: workflow.processType, apiKeys: workflow.apiKeys }).toEqual({
       dashboardHeading: "오늘의 운영 상태", requireType: "undefined", processType: "undefined", apiKeys: ["getDocument", "health", "personalOps", "search"]
     });
+    expect(workflow.cssLinkHref).toBe("../main_window.css");
+    expect(workflow.cssRuleCount).toBeGreaterThan(0);
+    expect(workflow.csp).toContain("style-src 'self'");
+    expect(workflow.csp).not.toContain("unsafe-inline");
+    await evaluate(target, `(() => {
+      const input = document.querySelector("#wiki-query");
+      if (!input || !input.form) throw new Error("Wiki search form is unavailable");
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+      if (!setter) throw new Error("Input value setter is unavailable");
+      setter.call(input, "fixture");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.form.requestSubmit();
+      return true;
+    })()`);
+    await expect.poll(async () => await waitForUiExcerpt(target), { timeout: 20_000 }).toBe("# Fixture document fixture-derived verified body");
     const screenshot = await cdpCommand<{ data: string }>(target, "Page.captureScreenshot", { format: "png" });
     await writeFile(testInfo.outputPath("mnemosyne-dashboard.png"), Buffer.from(screenshot.data, "base64"));
   } finally {

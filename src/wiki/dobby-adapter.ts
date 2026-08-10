@@ -60,6 +60,11 @@ export interface DobbyWikiAdapterOptions {
   trustAnchor?: SnapshotTrustAnchor;
 }
 
+export function buildVerifiedExcerpt(body: string, maximumLength = 500): string {
+  if (!Number.isSafeInteger(maximumLength) || maximumLength < 0) throw new Error("Excerpt length is invalid");
+  return body.replace(/\s+/gu, " ").trim().slice(0, maximumLength);
+}
+
 export class DobbyWikiAdapter {
   readonly #stateRoot: string;
   readonly #command?: string;
@@ -120,7 +125,7 @@ export class DobbyWikiAdapter {
         hits.push({
           documentId,
           title: document.title.slice(0, 300),
-          excerpt: "",
+          excerpt: buildVerifiedExcerpt(document.body),
           domain: domain?.slice(0, 120) ?? null,
           authority: document.authority.kind
         });

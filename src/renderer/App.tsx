@@ -86,7 +86,7 @@ export function App() {
           {results && <div className="result-list" aria-live="polite">
             {results.hits.length === 0 ? <p className="empty">검증된 결과가 없습니다.</p> : results.hits.map((hit) => (
               <button type="button" key={hit.documentId} onClick={() => void openDocument(hit.documentId)}>
-                <span className="authority">{hit.authority}</span><strong>{hit.title}</strong><small>{hit.domain ?? "Wiki"}</small>
+                <span className="authority">{hit.authority}</span><span className="result-copy"><strong>{hit.title}</strong><small className="excerpt">{hit.excerpt || "본문 미리보기가 없습니다."}</small></span><small>{hit.domain ?? "Wiki"}</small>
               </button>
             ))}
           </div>}
