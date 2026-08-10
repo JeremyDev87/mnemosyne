@@ -4,7 +4,7 @@ import { relative, resolve } from "node:path";
 export const rendererEntryUrl = "mnemosyne://renderer/main_window/index.html";
 const rendererProtocol = "mnemosyne:";
 const rendererHost = "renderer";
-const allowedAssets = new Set(["main_window/index.html", "main_window/index.js", "main_window/index.js.LICENSE.txt"]);
+const allowedAssets = new Set(["main_window/index.html", "main_window/index.js", "main_window/index.js.LICENSE.txt", "main_window.css"]);
 
 export function rendererAssetPath(appPath: string, requestUrl: string): string | undefined {
   try {
@@ -24,7 +24,11 @@ export async function serveRendererAsset(appPath: string, requestUrl: string): P
   const assetPath = rendererAssetPath(appPath, requestUrl);
   if (!assetPath) return new Response("Not found", { status: 404 });
   try {
-    const type = assetPath.endsWith(".html") ? "text/html; charset=utf-8" : "application/javascript; charset=utf-8";
+    const type = assetPath.endsWith(".html")
+      ? "text/html; charset=utf-8"
+      : assetPath.endsWith(".css")
+        ? "text/css; charset=utf-8"
+        : "application/javascript; charset=utf-8";
     return new Response(await readFile(assetPath), { headers: { "content-type": type } });
   } catch {
     return new Response("Not found", { status: 404 });

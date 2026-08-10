@@ -18,6 +18,7 @@
     "build:trust-helper": "bash scripts/build-trust-helper.sh",
     "verify:local-trust-gate": "bash scripts/verify-local-adhoc-trust-gate.sh",
     "package": "npm run build:trust-helper && electron-forge package",
+    "verify:packaged-local-adhoc": "bash scripts/verify-packaged-local-adhoc.sh",
     "package:e2e": "npm run build:trust-helper && MNEMOSYNE_E2E_BUILD=1 electron-forge package",
     "make": "npm run build:trust-helper && electron-forge make",
     "test:e2e": "npm run package:e2e && playwright test"
@@ -43,7 +44,7 @@
     "electron": "43.3.0",
     "eslint": "^9.32.0",
     "globals": "^16.5.0",
-    "style-loader": "4.0.0",
+    "mini-css-extract-plugin": "^2.10.2",
     "ts-loader": "9.5.4",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.38.0",

@@ -40,6 +40,30 @@ jobs:
       - name: Run repository checks
         run: npm run check
 
+  packaged-local-adhoc:
+    name: Exact-head packaged local ad-hoc evidence
+    runs-on: macos-14
+    timeout-minutes: 20
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ env.CI_HEAD_SHA }}
+          persist-credentials: false
+      - name: Set up Node.js 24
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Verify exact head
+        run: test "$(git rev-parse HEAD)" = "$CI_HEAD_SHA"
+      - name: Build and verify local ad-hoc artifact
+        run: |
+          npm run package
+          npm run verify:packaged-local-adhoc
+
   packaged-e2e:
     name: Exact-head packaged macOS E2E
     runs-on: macos-14
