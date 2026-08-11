@@ -12,6 +12,12 @@ const FORBIDDEN_MARKERS = Object.freeze([
   "fixture-derived verified body"
 ]);
 
+const FORBIDDEN_ARCHIVE_ENTRIES = Object.freeze([
+  { markerId: "PYTHON_DIRECT_URL_METADATA", pattern: /(?:^|\/)[^/]+\.dist-info\/direct_url\.json$/ },
+  { markerId: "PYTHON_EDITABLE_INSTALL_EGG_LINK", pattern: /(?:^|\/)[^/]+\.egg-link$/ },
+  { markerId: "VCS_METADATA_PATH", pattern: /(?:^|\/)\.(?:git|hg|svn)(?:\/|$)/ }
+]);
+
 function scanAsar(archivePath) {
   const findings = [];
   const entries = listPackage(archivePath, { isPack: false }).sort();
@@ -20,6 +26,11 @@ function scanAsar(archivePath) {
     const entry = archiveEntry.slice(1);
     const info = statFile(archivePath, entry, false);
     if ("files" in info || "link" in info) continue;
+    for (const { markerId, pattern } of FORBIDDEN_ARCHIVE_ENTRIES) {
+      if (pattern.test(archiveEntry)) {
+        findings.push({ markerId, entry: archiveEntry });
+      }
+    }
     const bytes = extractFile(archivePath, entry, false);
     for (const marker of FORBIDDEN_MARKERS) {
       if (bytes.includes(Buffer.from(marker, "utf8"))) {
@@ -46,7 +57,7 @@ function main() {
       return;
     }
     for (const finding of findings) {
-      console.log(`FAIL_PRODUCTION_ASAR_MARKERS marker=${finding.markerId} entry=${finding.entry}`);
+      console.log(`FAIL_PRODUCTION_ASAR_MARKERS marker=${finding.markerId} entry=${JSON.stringify(finding.entry)}`);
     }
     process.exitCode = 1;
   } catch {
