@@ -23,14 +23,14 @@ function scanAsar(archivePath) {
   const entries = listPackage(archivePath, { isPack: false }).sort();
 
   for (const archiveEntry of entries) {
-    const entry = archiveEntry.slice(1);
-    const info = statFile(archivePath, entry, false);
-    if ("files" in info || "link" in info) continue;
     for (const { markerId, pattern } of FORBIDDEN_ARCHIVE_ENTRIES) {
       if (pattern.test(archiveEntry)) {
         findings.push({ markerId, entry: archiveEntry });
       }
     }
+    const entry = archiveEntry.slice(1);
+    const info = statFile(archivePath, entry, false);
+    if ("files" in info || "link" in info) continue;
     const bytes = extractFile(archivePath, entry, false);
     for (const marker of FORBIDDEN_MARKERS) {
       if (bytes.includes(Buffer.from(marker, "utf8"))) {
@@ -40,6 +40,17 @@ function scanAsar(archivePath) {
   }
 
   return findings;
+}
+
+function formatDiagnosticEntry(entry) {
+  return Array.from(JSON.stringify(entry), (character) => {
+    const codePoint = character.charCodeAt(0);
+    const mustEscape = codePoint <= 0x1f
+      || (codePoint >= 0x7f && codePoint <= 0x9f)
+      || codePoint === 0x2028
+      || codePoint === 0x2029;
+    return mustEscape ? `\\u${codePoint.toString(16).padStart(4, "0")}` : character;
+  }).join("");
 }
 
 function main() {
@@ -57,7 +68,7 @@ function main() {
       return;
     }
     for (const finding of findings) {
-      console.log(`FAIL_PRODUCTION_ASAR_MARKERS marker=${finding.markerId} entry=${JSON.stringify(finding.entry)}`);
+      console.log(`FAIL_PRODUCTION_ASAR_MARKERS marker=${finding.markerId} entry=${formatDiagnosticEntry(finding.entry)}`);
     }
     process.exitCode = 1;
   } catch {
