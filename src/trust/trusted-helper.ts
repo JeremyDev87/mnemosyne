@@ -199,7 +199,11 @@ export function runTrustedHelperProcess(
       stderrBytes += chunk.byteLength;
       if (stderrBytes > maxStderrBytes) abort(new Error("Trusted helper diagnostics exceeded limit"));
     });
-    child.stdin.on("error", (error) => abort(error));
+    child.stdin.on("error", (error: NodeJS.ErrnoException) => {
+      // A helper may close stdin before the parent finishes its small request write.
+      // Let stderr/stdout limits and the authoritative close event classify that exit.
+      if (error.code !== "EPIPE") abort(error);
+    });
     child.once("error", (error) => abort(error));
     child.once("close", (code) => {
       if (settled) return;
