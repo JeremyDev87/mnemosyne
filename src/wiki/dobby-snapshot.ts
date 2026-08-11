@@ -11,7 +11,9 @@ import {
 } from "./snapshot-attestation";
 
 const sha256Schema = z.string().regex(/^[a-f0-9]{64}$/u);
-const generationSchema = z.string().min(1).max(160).regex(/^[A-Za-z0-9._-]+$/u);
+const generationSchema = z.string().min(1).max(160).regex(/^[A-Za-z0-9._-]+$/u).refine((value) => value !== "." && value !== "..", {
+  message: "Generation must be a canonical path leaf"
+});
 const entrySchema = z.object({
   relative_path: z.string(),
   sha256: sha256Schema,
