@@ -7,7 +7,9 @@ const base64Schema = z.string().min(8).max(256).regex(/^(?:[A-Za-z0-9+/]{4})*(?:
 const payloadSchema = z.object({
   domain: z.literal("MNEMOSYNE-SNAPSHOT-ATTESTATION-V1"),
   schema_version: z.literal(1),
-  generation: z.string().min(1).max(160).regex(/^[A-Za-z0-9._-]+$/u),
+  generation: z.string().min(1).max(160).regex(/^[A-Za-z0-9._-]+$/u).refine((value) => value !== "." && value !== "..", {
+    message: "Generation must be a canonical path leaf"
+  }),
   sequence: z.number().int().nonnegative().safe(),
   created_at: z.string().datetime({ offset: true }),
   manifest_sha256: sha256Schema,

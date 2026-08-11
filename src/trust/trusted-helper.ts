@@ -16,6 +16,9 @@ const helperResponseSchema = z.object({
   key_id: z.string().regex(/^[a-f0-9]{64}$/u).nullable().optional(),
   public_key_pem: z.string().nullable().optional(),
   signature_base64: z.string().nullable().optional(),
+  payload: z.unknown().optional(),
+  signature_algorithm: z.literal("ECDSA_P256_SHA256").optional(),
+  signature: z.string().min(8).max(256).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/u).optional(),
   trust_state: z.object({
     version: z.literal(1),
     key_id: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -150,10 +153,21 @@ async function verifyCodeSignature(path: string): Promise<void> {
   classifyTrustedSignaturePair(helper, app);
 }
 
-function runBinary(path: string, request: TrustedHelperRequest, expectedBinding: HelperFileBinding): Promise<unknown> {
+export interface TrustedHelperProcessLimits {
+  readonly timeoutMs?: number;
+  readonly maxStdoutBytes?: number;
+  readonly maxStderrBytes?: number;
+}
+
+export function runTrustedHelperProcess(
+  path: string,
+  request: TrustedHelperRequest,
+  limits: TrustedHelperProcessLimits = {}
+): Promise<unknown> {
   const input = Buffer.from(JSON.stringify(request), "utf8");
   if (input.byteLength > MAX_REQUEST_BYTES) return Promise.reject(new Error("Trusted helper request exceeded limit"));
-  if (!sameFileBinding(path, expectedBinding)) return Promise.reject(new Error("Trusted helper changed before execution"));
+  const maxStdoutBytes = limits.maxStdoutBytes ?? MAX_STDOUT_BYTES;
+  const maxStderrBytes = limits.maxStderrBytes ?? MAX_STDERR_BYTES;
   return new Promise((resolve, reject) => {
     const child = spawn(path, [], {
       shell: false,
@@ -175,15 +189,15 @@ function runBinary(path: string, request: TrustedHelperRequest, expectedBinding:
       finish(error);
     };
     const stdout: Buffer[] = [];
-    const timer = setTimeout(() => abort(new Error("Trusted helper timed out")), 15_000);
+    const timer = setTimeout(() => abort(new Error("Trusted helper timed out")), limits.timeoutMs ?? 15_000);
     child.stdout.on("data", (chunk: Buffer) => {
       stdoutBytes += chunk.byteLength;
-      if (stdoutBytes > MAX_STDOUT_BYTES) abort(new Error("Trusted helper response exceeded limit"));
+      if (stdoutBytes > maxStdoutBytes) abort(new Error("Trusted helper response exceeded limit"));
       else stdout.push(chunk);
     });
     child.stderr.on("data", (chunk: Buffer) => {
       stderrBytes += chunk.byteLength;
-      if (stderrBytes > MAX_STDERR_BYTES) abort(new Error("Trusted helper diagnostics exceeded limit"));
+      if (stderrBytes > maxStderrBytes) abort(new Error("Trusted helper diagnostics exceeded limit"));
     });
     child.stdin.on("error", (error) => abort(error));
     child.once("error", (error) => abort(error));
@@ -198,6 +212,11 @@ function runBinary(path: string, request: TrustedHelperRequest, expectedBinding:
     });
     child.stdin.end(input);
   });
+}
+
+function runBinary(path: string, request: TrustedHelperRequest, expectedBinding: HelperFileBinding): Promise<unknown> {
+  if (!sameFileBinding(path, expectedBinding)) return Promise.reject(new Error("Trusted helper changed before execution"));
+  return runTrustedHelperProcess(path, request);
 }
 
 export async function invokeTrustedHelper(path: string, request: TrustedHelperRequest): Promise<TrustedHelperResponse> {
