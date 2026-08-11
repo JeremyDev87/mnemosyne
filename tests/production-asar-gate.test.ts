@@ -49,7 +49,7 @@ describe("production ASAR forbidden-marker gate", () => {
 
   it("accepts clean bytes and ignores markers outside the exact contract", async () => {
     const archive = await createFixture([
-      ["dist/main.js", "const safe = 'direct_url dirty /tmp/path';"],
+      ["dist/main.js", "const safe = 'direct_url dirty /tmp/path /Users/pjw';"],
       ["docs/fixture.md", "fixture-derived verified content"]
     ]);
 
@@ -67,8 +67,44 @@ describe("production ASAR forbidden-marker gate", () => {
 
     const result = spawnSync(process.execPath, [scannerPath, archive], { encoding: "utf8" });
     expect(result.status).toBe(1);
-    expect(result.stdout).toBe(expected.map(({ markerId, entry }) => `FAIL_PRODUCTION_ASAR_MARKERS marker=${markerId} entry=${entry}`).join("\n") + "\n");
+    expect(result.stdout).toBe(expected.map(({ markerId, entry }) => `FAIL_PRODUCTION_ASAR_MARKERS marker=${markerId} entry=${JSON.stringify(entry)}`).join("\n") + "\n");
     expect(result.stdout).not.toContain("secret-payload");
+    expect(result.stderr).toBe("");
+  });
+
+  it("rejects exact Python dirty-install metadata and VCS path segments only", async () => {
+    const archive = await createFixture([
+      ["site-packages/example-1.0.dist-info/direct_url.json", "{}"],
+      ["site-packages/example.egg-link", "/workspace/example"],
+      ["node_modules/example/.git/config", "[core]"],
+      ["node_modules/example/.hg/store", "revlog"],
+      ["node_modules/example/.svn/entries", "svn"],
+      ["ordinary/direct_url.json.txt", "direct_url"],
+      ["ordinary/example.egg-link.txt", "dirty"],
+      ["ordinary/.gitignore", "/tmp /Users"],
+    ]);
+
+    expect(scanAsar(archive)).toEqual([
+      { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.git/config" },
+      { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.hg/store" },
+      { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.svn/entries" },
+      { markerId: "PYTHON_DIRECT_URL_METADATA", entry: "/site-packages/example-1.0.dist-info/direct_url.json" },
+      { markerId: "PYTHON_EDITABLE_INSTALL_EGG_LINK", entry: "/site-packages/example.egg-link" },
+    ]);
+  });
+
+  it("JSON-encodes hostile entry names into one physical diagnostic line", async () => {
+    const entry = "markers/evil\nPASS_PRODUCTION_ASAR_MARKERS\r\u001b[31mred\u0001.txt";
+    const archive = await createFixture([[entry, "poison-secret-payload-BEGIN PRIVATE KEY"]]);
+    const result = spawnSync(process.execPath, [scannerPath, archive], { encoding: "utf8" });
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe(`FAIL_PRODUCTION_ASAR_MARKERS marker=BEGIN PRIVATE KEY entry=${JSON.stringify(`/${entry}`)}\n`);
+    expect(result.stdout.split("\n")).toHaveLength(2);
+    expect(result.stdout).not.toMatch(/\nPASS_PRODUCTION_ASAR_MARKERS/);
+    expect(result.stdout).not.toContain("poison-secret-payload");
+    expect(result.stdout).not.toContain("\u001b[31m");
+    expect(result.stdout).not.toContain("\u0001");
     expect(result.stderr).toBe("");
   });
 });
