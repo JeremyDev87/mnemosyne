@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { createPackage } from "@electron/asar";
@@ -22,7 +22,13 @@ const forbiddenMarkers = [
   "fixture-derived verified body"
 ] as const;
 
-async function createFixture(files: readonly (readonly [string, string])[]): Promise<string> {
+async function createFixture(
+  files: readonly (readonly [string, string])[],
+  options: {
+    directories?: readonly string[];
+    symlinks?: readonly (readonly [string, string])[];
+  } = {}
+): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), "mnemosyne-asar-gate-"));
   roots.push(root);
   const source = join(root, "source");
@@ -31,6 +37,14 @@ async function createFixture(files: readonly (readonly [string, string])[]): Pro
     const destination = join(source, relativePath);
     await mkdir(dirname(destination), { recursive: true });
     await writeFile(destination, contents);
+  }
+  for (const relativePath of options.directories ?? []) {
+    await mkdir(join(source, relativePath), { recursive: true });
+  }
+  for (const [relativePath, target] of options.symlinks ?? []) {
+    const destination = join(source, relativePath);
+    await mkdir(dirname(destination), { recursive: true });
+    await symlink(target, destination);
   }
   await createPackage(source, archive);
   return archive;
@@ -85,26 +99,49 @@ describe("production ASAR forbidden-marker gate", () => {
     ]);
 
     expect(scanAsar(archive)).toEqual([
+      { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.git" },
       { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.git/config" },
+      { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.hg" },
       { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.hg/store" },
+      { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.svn" },
       { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.svn/entries" },
       { markerId: "PYTHON_DIRECT_URL_METADATA", entry: "/site-packages/example-1.0.dist-info/direct_url.json" },
       { markerId: "PYTHON_EDITABLE_INSTALL_EGG_LINK", entry: "/site-packages/example.egg-link" },
     ]);
   });
 
-  it("JSON-encodes hostile entry names into one physical diagnostic line", async () => {
-    const entry = "markers/evil\nPASS_PRODUCTION_ASAR_MARKERS\r\u001b[31mred\u0001.txt";
+  it("rejects forbidden paths even when the archive entry is an empty directory or symlink", async () => {
+    const archive = await createFixture(
+      [["editable-source/README.md", "safe"]],
+      {
+        directories: ["node_modules/example/.git"],
+        symlinks: [["site-packages/example.egg-link", "../editable-source/README.md"]]
+      }
+    );
+
+    expect(scanAsar(archive)).toEqual([
+      { markerId: "VCS_METADATA_PATH", entry: "/node_modules/example/.git" },
+      { markerId: "PYTHON_EDITABLE_INSTALL_EGG_LINK", entry: "/site-packages/example.egg-link" }
+    ]);
+  });
+
+  it("escapes C0, C1, DEL, and Unicode line separators in one physical diagnostic line", async () => {
+    const entry = "markers/evil\n\u001b\u007f\u0085\u009b\u2028\u2029.txt";
     const archive = await createFixture([[entry, "poison-secret-payload-BEGIN PRIVATE KEY"]]);
     const result = spawnSync(process.execPath, [scannerPath, archive], { encoding: "utf8" });
 
     expect(result.status).toBe(1);
-    expect(result.stdout).toBe(`FAIL_PRODUCTION_ASAR_MARKERS marker=BEGIN PRIVATE KEY entry=${JSON.stringify(`/${entry}`)}\n`);
+    expect(result.stdout).toBe(
+      "FAIL_PRODUCTION_ASAR_MARKERS marker=BEGIN PRIVATE KEY entry=\"/markers/evil\\n\\u001b\\u007f\\u0085\\u009b\\u2028\\u2029.txt\"\n"
+    );
     expect(result.stdout.split("\n")).toHaveLength(2);
-    expect(result.stdout).not.toMatch(/\nPASS_PRODUCTION_ASAR_MARKERS/);
+    expect(Array.from(result.stdout.slice(0, -1), (character) => character.charCodeAt(0)).some((codePoint) =>
+      codePoint <= 0x1f
+      || (codePoint >= 0x7f && codePoint <= 0x9f)
+      || codePoint === 0x2028
+      || codePoint === 0x2029
+    )).toBe(false);
     expect(result.stdout).not.toContain("poison-secret-payload");
-    expect(result.stdout).not.toContain("\u001b[31m");
-    expect(result.stdout).not.toContain("\u0001");
     expect(result.stderr).toBe("");
   });
 });
