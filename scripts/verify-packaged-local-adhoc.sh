@@ -22,6 +22,7 @@ asar="$app/Contents/Resources/app.asar"
 [[ -f "$app_executable" ]] || { printf 'FAIL_PACKAGED_LOCAL_ADHOC app_executable\n' >&2; exit 1; }
 [[ -f "$helper" ]] || { printf 'FAIL_PACKAGED_LOCAL_ADHOC helper\n' >&2; exit 1; }
 [[ -s "$asar" ]] || { printf 'FAIL_PACKAGED_LOCAL_ADHOC asar\n' >&2; exit 1; }
+node "$ROOT/scripts/verify-production-asar.cjs" "$asar"
 
 app_id="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")"
 [[ "$app_id" == "com.jeremywinchester.mnemosyne" ]] || { printf 'FAIL_PACKAGED_LOCAL_ADHOC app_identifier\n' >&2; exit 1; }
