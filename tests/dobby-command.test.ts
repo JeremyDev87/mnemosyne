@@ -1,5 +1,4 @@
 import { chmod, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { realpath } from "node:fs/promises";
 import { afterEach, describe, expect, it } from "vitest";
@@ -8,11 +7,17 @@ import {
   DobbyCommandRejectedError
 } from "../src/wiki/dobby-command";
 
+// Use a private workspace directory instead of OS temp roots such as Linux /tmp
+// (mode 1777). Ancestor path components must not be group/other-writable for admission.
+const fixtureHome = join(process.cwd(), ".tmp-test-fixtures");
 const roots: string[] = [];
 afterEach(async () => Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))));
 
 async function fixture(): Promise<{ resourcesPath: string; appExecutable: string; command: string; authorityPath: string }> {
-  const root = await mkdtemp(join(tmpdir(), "mnemosyne-dobby-admission-"));
+  await mkdir(fixtureHome, { recursive: true, mode: 0o700 });
+  await chmod(fixtureHome, 0o700);
+  const root = await mkdtemp(join(fixtureHome, "mnemosyne-dobby-admission-"));
+  await chmod(root, 0o700);
   roots.push(root);
   const resourcesPath = join(root, "Resources");
   const runtime = join(resourcesPath, "dobby-runtime");
