@@ -16,12 +16,13 @@
     "dev": "electron-forge start",
     "start": "electron-forge start",
     "build:trust-helper": "bash scripts/build-trust-helper.sh",
+    "build:dobby-runtime": "bash scripts/build-dobby-runtime.sh",
     "verify:local-trust-gate": "bash scripts/verify-local-adhoc-trust-gate.sh",
-    "package": "npm run build:trust-helper && electron-forge package && npm run verify:production-asar",
+    "package": "npm run build:trust-helper && npm run build:dobby-runtime && electron-forge package && npm run verify:production-asar",
     "verify:production-asar": "node scripts/verify-production-asar.cjs out/*/*.app/Contents/Resources/app.asar",
     "verify:packaged-local-adhoc": "bash scripts/verify-packaged-local-adhoc.sh",
     "package:e2e": "npm run build:trust-helper && env 'MNEMOSYNE''_E2E_BUILD=1' electron-forge package",
-    "make": "npm run build:trust-helper && electron-forge make",
+    "make": "npm run package && bash scripts/build-macos-pkg.sh",
     "test:e2e": "npm run package:e2e && playwright test"
   },
   "dependencies": {

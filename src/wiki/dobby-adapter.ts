@@ -56,6 +56,7 @@ async function defaultCommandRunner(command: string, args: readonly string[]): P
 export interface DobbyWikiAdapterOptions {
   stateRoot: string;
   command?: string;
+  admitCommand?: () => Promise<string>;
   runCommand?: CommandRunner;
   trustAnchor?: SnapshotTrustAnchor;
 }
@@ -68,6 +69,7 @@ export function buildVerifiedExcerpt(body: string, maximumLength = 500): string 
 export class DobbyWikiAdapter {
   readonly #stateRoot: string;
   readonly #command?: string;
+  readonly #admitCommand?: () => Promise<string>;
   readonly #runCommand: CommandRunner;
   readonly #trustAnchor?: SnapshotTrustAnchor;
   readonly #documentPaths = new Map<string, string>();
@@ -76,6 +78,7 @@ export class DobbyWikiAdapter {
   constructor(options: DobbyWikiAdapterOptions) {
     this.#stateRoot = options.stateRoot;
     this.#command = options.command;
+    this.#admitCommand = options.admitCommand;
     this.#runCommand = options.runCommand ?? defaultCommandRunner;
     this.#trustAnchor = options.trustAnchor;
   }
@@ -87,8 +90,9 @@ export class DobbyWikiAdapter {
   }
 
   async #execute(args: readonly string[]): Promise<unknown> {
-    if (!this.#command) throw new Error("Trusted Wiki command is not provisioned");
-    return this.#runCommand(this.#command, args);
+    const command = this.#admitCommand ? await this.#admitCommand() : this.#command;
+    if (!command) throw new Error("Trusted Wiki command is not provisioned");
+    return this.#runCommand(command, args);
   }
 
   async health(): Promise<HealthResult> {

@@ -68,6 +68,18 @@ describe("Dobby read-only adapter", () => {
     expect(document.body).toContain("검증된 본문");
   });
 
+  it("re-admits the bundled command immediately before every execution", async () => {
+    const fixture = await stateFixture();
+    const admitCommand = vi.fn(async () => "/trusted/dobby-wiki");
+    const runCommand = vi.fn(async () => ({ status: "ok", degraded: false, snapshot_state_counts: { copied: 1 } }));
+    const adapter = new DobbyWikiAdapter({ stateRoot: fixture.root, trustAnchor: fixture.anchor, admitCommand, runCommand });
+
+    await expect(adapter.health()).resolves.toMatchObject({ status: "ok" });
+    await expect(adapter.health()).resolves.toMatchObject({ status: "ok" });
+    expect(admitCommand).toHaveBeenCalledTimes(2);
+    expect(runCommand).toHaveBeenCalledTimes(2);
+  });
+
   it("fails closed without a trust anchor, redacts command failures, and rejects unknown opaque IDs", async () => {
     const fixture = await stateFixture();
     const runCommand = vi.fn(async () => { throw new Error("must not execute"); });
