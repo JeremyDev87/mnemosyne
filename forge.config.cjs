@@ -2,7 +2,7 @@ const { execFileSync } = require("node:child_process");
 const { existsSync } = require("node:fs");
 const { join } = require("node:path");
 const { WebpackPlugin } = require("@electron-forge/plugin-webpack");
-const { MakerZIP } = require("@electron-forge/maker-zip");
+
 const { flipFuses, FuseVersion, FuseV1Options } = require("@electron/fuses");
 const isE2EBuild = process.env.MNEMOSYNE_E2E_BUILD === "1";
 const productName = isE2EBuild ? "Mnemosyne-E2E-UNSAFE" : "Mnemosyne";
@@ -49,7 +49,7 @@ module.exports = {
       }
     }
   },
-  makers: [new MakerZIP({}, ["darwin"])],
+  makers: [],
   plugins: [
     new WebpackPlugin({
       mainConfig: "./webpack.main.config.cjs",
