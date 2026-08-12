@@ -5,7 +5,12 @@ import { dirname, join } from "node:path";
 import { createPackage } from "@electron/asar";
 import { afterEach, describe, expect, it } from "vitest";
 import packageJson from "../package.json";
-import { scanAsar } from "../scripts/verify-production-asar.cjs";
+import scanner from "../scripts/verify-production-asar.cjs";
+
+const { scanAsar } = scanner;
+const scanResourceTree = (scanner as unknown as {
+  scanResourceTree: (root: string) => Array<{ markerId: string; entry: string }>;
+}).scanResourceTree;
 
 const scannerPath = join(process.cwd(), "scripts", "verify-production-asar.cjs");
 const roots: string[] = [];
@@ -46,7 +51,11 @@ async function createFixture(
     await mkdir(dirname(destination), { recursive: true });
     await symlink(target, destination);
   }
-  await createPackage(source, archive);
+  const packageStream = await createPackage(source, archive);
+  await new Promise<void>((resolve, reject) => {
+    packageStream.once("finish", resolve);
+    packageStream.once("error", reject);
+  });
   return archive;
 }
 
@@ -110,6 +119,16 @@ describe("production ASAR forbidden-marker gate", () => {
     ]);
   });
 
+  it("scans the unpacked bundled runtime for dirty install metadata", async () => {
+    const root = await mkdtemp(join(tmpdir(), "mnemosyne-runtime-gate-"));
+    roots.push(root);
+    await mkdir(join(root, "python", "site-packages", "example.dist-info"), { recursive: true });
+    await writeFile(join(root, "python", "site-packages", "example.dist-info", "direct_url.json"), "{}");
+    expect(scanResourceTree(root)).toContainEqual({
+      markerId: "PYTHON_DIRECT_URL_METADATA",
+      entry: "python/site-packages/example.dist-info/direct_url.json"
+    });
+  });
   it("rejects forbidden paths even when the archive entry is an empty directory or symlink", async () => {
     const archive = await createFixture(
       [["editable-source/README.md", "safe"]],

@@ -5,6 +5,7 @@ import { isAllowedNavigation, secureWebPreferences } from "./security";
 import { DobbyWikiAdapter } from "../wiki/dobby-adapter";
 import type { SnapshotTrustAnchor } from "../wiki/snapshot-attestation";
 import { loadProvisionedTrustAnchor } from "../trust/trust-anchor";
+import { admitBundledDobbyCommand } from "../wiki/dobby-command";
 import { rendererEntryUrl, serveRendererAsset } from "./renderer-protocol";
 
 declare const MAIN_WINDOW_PRELOAD_WEBPACK_ENTRY: string;
@@ -43,8 +44,21 @@ async function wikiTrustAnchor(): Promise<SnapshotTrustAnchor | undefined> {
   return { keyId, publicKeyPem, acceptedSequence, acceptedAttestationId };
 }
 
+function wikiCommandAdmission(): (() => Promise<string>) | undefined {
+  if (!__MNEMOSYNE_E2E_BUILD__) {
+    return async () => {
+      const admission = await admitBundledDobbyCommand({
+        resourcesPath: process.resourcesPath,
+        runtimeRoot: "/Library/Application Support/Mnemosyne/dobby-runtime",
+        appExecutable: process.execPath
+      });
+      return admission.command;
+    };
+  }
+  return undefined;
+}
+
 function wikiCommand(): string | undefined {
-  if (!__MNEMOSYNE_E2E_BUILD__) return undefined;
   const command = process.env.MNEMOSYNE_E2E_DOBBY_COMMAND;
   if (!command) throw new Error("E2E trusted Wiki command is required");
   return resolve(command);
@@ -76,7 +90,8 @@ async function createMainWindow(): Promise<BrowserWindow> {
     const adapter = new DobbyWikiAdapter({
       stateRoot: wikiStateRoot(),
       trustAnchor: await wikiTrustAnchor(),
-      command: wikiCommand()
+      command: __MNEMOSYNE_E2E_BUILD__ ? wikiCommand() : undefined,
+      admitCommand: wikiCommandAdmission()
     });
     disposeIpc?.();
     disposeIpc = registerIpcHandlers(ipcMain, window.webContents.id, adapter);

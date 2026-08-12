@@ -1,4 +1,6 @@
 const { extractFile, listPackage, statFile } = require("@electron/asar");
+const { existsSync, readdirSync, readFileSync, statSync } = require("node:fs");
+const { dirname, join, relative } = require("node:path");
 
 const FORBIDDEN_MARKERS = Object.freeze([
   "MNEMOSYNE_E2E_",
@@ -42,6 +44,28 @@ function scanAsar(archivePath) {
   return findings;
 }
 
+function scanResourceTree(resourceRoot) {
+  const findings = [];
+  const visit = (directory) => {
+    for (const name of readdirSync(directory).sort()) {
+      const absolute = join(directory, name);
+      const entry = relative(resourceRoot, absolute).split("\\").join("/");
+      const info = statSync(absolute);
+      for (const { markerId, pattern } of FORBIDDEN_ARCHIVE_ENTRIES) {
+        if (pattern.test(entry)) findings.push({ markerId, entry });
+      }
+      if (info.isDirectory()) visit(absolute);
+      else if (info.isFile()) {
+        const bytes = readFileSync(absolute);
+        for (const marker of FORBIDDEN_MARKERS) {
+          if (bytes.includes(Buffer.from(marker, "utf8"))) findings.push({ markerId: marker, entry });
+        }
+      }
+    }
+  };
+  visit(resourceRoot);
+  return findings;
+}
 function formatDiagnosticEntry(entry) {
   return Array.from(JSON.stringify(entry), (character) => {
     const codePoint = character.charCodeAt(0);
@@ -62,7 +86,8 @@ function main() {
   }
 
   try {
-    const findings = scanAsar(archivePath);
+    const resourceRoot = join(dirname(archivePath), "dobby-runtime");
+    const findings = scanAsar(archivePath).concat(existsSync(resourceRoot) ? scanResourceTree(resourceRoot) : []);
     if (findings.length === 0) {
       console.log("PASS_PRODUCTION_ASAR_MARKERS");
       return;
@@ -77,6 +102,6 @@ function main() {
   }
 }
 
-module.exports = { scanAsar };
+module.exports = { scanAsar, scanResourceTree };
 
 if (require.main === module) main();

@@ -10,13 +10,15 @@ describe("Electron package entry contract", () => {
     const forgeConfig = await readFile(new URL("../forge.config.cjs", import.meta.url), "utf8");
     expect(packageJson.main).toBe(".webpack/main");
     expect(packageJson.type).not.toBe("module");
-    expect((packageJson.scripts as Record<string, string>).make).toBe("npm run build:trust-helper && electron-forge make");
+    expect((packageJson.scripts as Record<string, string>).make).toBe("npm run package && bash scripts/build-macos-pkg.sh");
+    expect((packageJson.scripts as Record<string, string>).package).toContain("npm run build:dobby-runtime");
     expect(forgeConfig).toContain("[FuseV1Options.GrantFileProtocolExtraPrivileges]: false");
     expect(forgeConfig).toContain("strictlyRequireAllFuses: true");
     expect(forgeConfig).toContain("[FuseV1Options.WasmTrapHandlers]: true");
     expect(forgeConfig).not.toContain("new FusesPlugin");
     expect(forgeConfig).toContain('throw new Error("Mnemosyne packaging is restricted to darwin/arm64")');
     expect(forgeConfig).toContain('outDir: isE2EBuild ? "out-e2e" : "out"');
+    expect(forgeConfig).not.toContain("MakerZIP");
     expect(forgeConfig).toContain('"Mnemosyne-E2E-UNSAFE"');
     expect(forgeConfig).toContain('"com.jeremywinchester.mnemosyne.e2e-unsafe"');
   });
