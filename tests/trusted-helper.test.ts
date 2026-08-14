@@ -33,7 +33,7 @@ describe("trusted Secure Enclave helper seam", () => {
     await writeFile(helper, "#!/bin/sh\ncat > \"$0.request\"\nprintf '%s\\n' '{\"status\":\"error\",\"error\":\"secure enclave signing key is not enrolled\"}'\nexit 1\n");
     await chmod(helper, 0o700);
 
-    await expect(runTrustedHelperProcess(helper, { operation: "attest-candidate" })).rejects.toEqual(new TrustedHelperRejectedError("rejected"));
+    await expect(runTrustedHelperProcess(helper, { operation: "attest-candidate" })).rejects.toEqual(new TrustedHelperRejectedError("not-enrolled"));
     await expect(readFile(`${helper}.request`, "utf8")).resolves.toBe(JSON.stringify({ operation: "attest-candidate" }));
   });
 
@@ -65,6 +65,7 @@ describe("trusted Secure Enclave helper seam", () => {
 
   it("distinguishes post-authorization invalid successor from generic rejection", () => {
     expect(parseTrustedHelperFailureReason('{"status":"error","error":"trust state successor is invalid"}')).toBe("invalid-successor");
+    expect(parseTrustedHelperFailureReason('{"status":"error","error":"secure enclave signing key is not enrolled"}')).toBe("not-enrolled");
     expect(parseTrustedHelperFailureReason('{"status":"error","error":"app caller identity mismatch"}')).toBe("rejected");
     expect(parseTrustedHelperFailureReason("not-json")).toBe("rejected");
   });

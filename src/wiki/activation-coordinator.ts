@@ -124,7 +124,7 @@ async function atomicWrite(path: string, content: string): Promise<void> {
   await fsyncDirectory(dirname(path));
 }
 
-async function acquireLock(path: string): Promise<() => Promise<void>> {
+export async function acquireActivationLock(path: string): Promise<() => Promise<void>> {
   await mkdir(dirname(path), { recursive: true });
   const token = randomUUID();
   const candidate = `${path}.${token}.candidate`;
@@ -209,7 +209,7 @@ export class ActivationCoordinator {
     generationSchema.parse(candidate.nextGeneration);
     if (candidate.expectedGeneration !== null) generationSchema.parse(candidate.expectedGeneration);
     sha256Schema.parse(candidate.attestationSha256);
-    const release = await acquireLock(this.paths.lockPath);
+    const release = await acquireActivationLock(this.paths.lockPath);
     try {
       const existing = await this.readJournal();
       if (existing && existing.state !== "cas_committed") throw new ActivationRecoveryError("unresolved journal requires recovery inspection");
@@ -320,7 +320,7 @@ export class ActivationCoordinator {
   }
 
   async resumeRecovered(): Promise<Journal> {
-    const release = await acquireLock(this.paths.lockPath);
+    const release = await acquireActivationLock(this.paths.lockPath);
     try {
       let report = await this.inspectRecovery();
       if (!report.journal) throw new ActivationRecoveryError(`recovery cannot resume from ${report.verdict}`);
@@ -358,7 +358,7 @@ export class ActivationCoordinator {
   async commitRecovered(): Promise<Journal> { return this.resumeRecovered(); }
 
   async clearCommittedJournal(): Promise<void> {
-    const release = await acquireLock(this.paths.lockPath);
+    const release = await acquireActivationLock(this.paths.lockPath);
     try {
       const journal = await this.readJournal();
       if (journal?.state !== "cas_committed") throw new ActivationRecoveryError("only a committed journal may be cleared");

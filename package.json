@@ -21,6 +21,7 @@
     "package": "npm run build:trust-helper && electron-forge package && npm run verify:production-asar",
     "verify:production-asar": "node scripts/verify-production-asar.cjs out/*/*.app/Contents/Resources/app.asar",
     "verify:packaged-local-adhoc": "bash scripts/verify-packaged-local-adhoc.sh",
+    "verify:local-pkg-recovery": "python3 scripts/verify-local-pkg-recovery.py out/make/Mnemosyne-0.1.0-arm64.pkg --output .hermes/evidence/internal-alpha/local-pkg-recovery.json",
     "package:e2e": "npm run build:trust-helper && env 'MNEMOSYNE''_E2E_BUILD=1' electron-forge package",
     "make": "npm run package && npm run build:dobby-runtime && bash scripts/build-macos-pkg.sh",
     "test:e2e": "npm run package:e2e && playwright test"

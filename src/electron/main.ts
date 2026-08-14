@@ -5,6 +5,7 @@ import { isAllowedNavigation, secureWebPreferences } from "./security";
 import { DobbyWikiAdapter } from "../wiki/dobby-adapter";
 import type { SnapshotTrustAnchor } from "../wiki/snapshot-attestation";
 import { loadProvisionedTrustAnchor } from "../trust/trust-anchor";
+import { parseOwnerActivationOperation, runOwnerActivationOperation } from "../trust/owner-activation";
 import { admitBundledDobbyCommand } from "../wiki/dobby-command";
 import { rendererEntryUrl, serveRendererAsset } from "./renderer-protocol";
 
@@ -26,7 +27,7 @@ function wikiStateRoot(): string {
     if (!fixtureRoot) throw new Error("E2E snapshot fixture root is required");
     return resolve(fixtureRoot);
   }
-  return join(app.getPath("home"), ".hermes", "state", "wiki-retrieval");
+  return join(app.getPath("home"), "Library", "Application Support", "Mnemosyne", "fixed-projection");
 }
 
 async function wikiTrustAnchor(): Promise<SnapshotTrustAnchor | undefined> {
@@ -89,6 +90,7 @@ async function createMainWindow(): Promise<BrowserWindow> {
   try {
     const adapter = new DobbyWikiAdapter({
       stateRoot: wikiStateRoot(),
+      ...(__MNEMOSYNE_E2E_BUILD__ ? {} : { commandStateRoot: join(wikiStateRoot(), "runtime") }),
       trustAnchor: await wikiTrustAnchor(),
       command: __MNEMOSYNE_E2E_BUILD__ ? wikiCommand() : undefined,
       admitCommand: wikiCommandAdmission()
@@ -118,7 +120,25 @@ function ensureMainWindow(): Promise<BrowserWindow> {
   return windowCreation;
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  const ownerOperation = parseOwnerActivationOperation(process.argv.slice(1));
+  if (ownerOperation) {
+    try {
+      const result = await runOwnerActivationOperation(
+        join(process.resourcesPath, "mnemosyne-trust-helper"),
+        ownerOperation,
+        undefined,
+        join(app.getPath("home"), "Library", "Application Support", "Mnemosyne", "fixed-projection")
+      );
+      process.stdout.write(`${JSON.stringify(result)}\n`);
+      app.exit(0);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "unknown failure";
+      process.stderr.write(`Mnemosyne owner activation failed: ${message}\n`);
+      app.exit(1);
+    }
+    return;
+  }
   protocol.handle("mnemosyne", (request) => serveRendererAsset(app.getAppPath(), request.url));
   Menu.setApplicationMenu(null);
   session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => callback(false));

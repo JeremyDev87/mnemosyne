@@ -115,22 +115,24 @@ func sha256Hex(_ data: Data) -> String {
 
 private func keyTagData() -> Data { Data(keyTag.utf8) }
 
-func findPrivateKey() -> SecKey {
-    let query: [CFString: Any] = [
-        kSecClass: kSecClassKey,
-        kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom,
-        kSecAttrApplicationTag: keyTagData(),
-        kSecReturnRef: true
-    ]
-    var item: CFTypeRef?
-    let status = SecItemCopyMatching(query as CFDictionary, &item)
-    guard status == errSecSuccess, let item else { fail("secure enclave signing key is not enrolled") }
-    let key = item as! SecKey
-    let attributes = SecKeyCopyAttributes(key) as? [CFString: Any]
-    guard attributes?[kSecAttrTokenID] as? String == (kSecAttrTokenIDSecureEnclave as String) else {
-        fail("signing key is not backed by Secure Enclave")
+private func secureEnclaveKeyURL() -> URL {
+    let directory = FileManager.default.homeDirectoryForCurrentUser
+        .appendingPathComponent("Library/Application Support/Mnemosyne", isDirectory: true)
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
+    } catch { fail("secure enclave key directory unavailable") }
+    return directory.appendingPathComponent("secure-enclave-signing-key.dat", isDirectory: false)
+}
+
+func findPrivateKey() -> SecureEnclave.P256.Signing.PrivateKey {
+    let url = secureEnclaveKeyURL()
+    guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else {
+        fail("secure enclave signing key is not enrolled")
     }
-    return key
+    do {
+        return try SecureEnclave.P256.Signing.PrivateKey(dataRepresentation: data)
+    } catch { fail("secure enclave signing key is unreadable") }
 }
 
 private func signingIdentity(_ code: SecCode) -> (identifier: String?, team: String?) {
@@ -247,9 +249,8 @@ private func requireAuthorizedAppCaller() {
     }
 }
 
-func p256SPKI(_ publicKey: SecKey) -> Data {
-    var error: Unmanaged<CFError>?
-    guard let raw = SecKeyCopyExternalRepresentation(publicKey, &error) as Data?, raw.count == 65, raw.first == 0x04 else {
+func p256SPKI(_ raw: Data) -> Data {
+    guard raw.count == 65, raw.first == 0x04 else {
         fail("secure enclave public key export failed")
     }
     let prefix = Data([0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00])
@@ -258,47 +259,24 @@ func p256SPKI(_ publicKey: SecKey) -> Data {
 
 private func publicKeyInfo() -> (String, String) {
     let privateKey = findPrivateKey()
-    guard let publicKey = SecKeyCopyPublicKey(privateKey) else {
-        fail("secure enclave public key lookup failed")
-    }
-    let pemData = p256SPKI(publicKey)
+    let pemData = p256SPKI(privateKey.publicKey.x963Representation)
     let keyID = sha256Hex(pemData)
-    let pem = "-----BEGIN PUBLIC KEY-----\n\(pemData.base64EncodedString(options: [.lineLength64Characters, .endLineWithLineFeed]))-----END PUBLIC KEY-----\n"
+    let base64 = pemData.base64EncodedString(options: [.lineLength64Characters, .endLineWithLineFeed])
+        .trimmingCharacters(in: .newlines)
+    let pem = "-----BEGIN PUBLIC KEY-----\n\(base64)\n-----END PUBLIC KEY-----\n"
     return (keyID, pem)
 }
 
 private func enroll() -> (String, String) {
-    var existing: CFTypeRef?
-    let existingStatus = SecItemCopyMatching([
-        kSecClass: kSecClassKey,
-        kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom,
-        kSecAttrApplicationTag: keyTagData(),
-        kSecReturnRef: true
-    ] as CFDictionary, &existing)
-    if existingStatus == errSecSuccess {
-        return publicKeyInfo()
-    }
-    guard existingStatus == errSecItemNotFound else { fail("secure enclave key lookup failed") }
-
-    var accessError: Unmanaged<CFError>?
-    guard let access = SecAccessControlCreateWithFlags(nil, kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly, .privateKeyUsage, &accessError) else {
-        fail("secure enclave access-control creation failed")
-    }
-    let privateAttributes: [CFString: Any] = [
-        kSecAttrIsPermanent: true,
-        kSecAttrApplicationTag: keyTagData(),
-        kSecAttrAccessControl: access
-    ]
-    let attributes: [CFString: Any] = [
-        kSecAttrKeyType: kSecAttrKeyTypeECSECPrimeRandom,
-        kSecAttrKeySizeInBits: 256,
-        kSecAttrTokenID: kSecAttrTokenIDSecureEnclave,
-        kSecPrivateKeyAttrs: privateAttributes
-    ]
-    var error: Unmanaged<CFError>?
-    guard SecKeyCreateRandomKey(attributes as CFDictionary, &error) != nil else {
-        fail("secure enclave key enrollment failed")
-    }
+    let url = secureEnclaveKeyURL()
+    if FileManager.default.fileExists(atPath: url.path) { return publicKeyInfo() }
+    let privateKey: SecureEnclave.P256.Signing.PrivateKey
+    do { privateKey = try SecureEnclave.P256.Signing.PrivateKey() }
+    catch { fail("secure enclave key enrollment failed") }
+    do {
+        try privateKey.dataRepresentation.write(to: url, options: [.atomic])
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+    } catch { fail("secure enclave key reference persistence failed") }
     return publicKeyInfo()
 }
 
@@ -317,18 +295,26 @@ private func withTrustLock<T>(_ body: () throws -> T) rethrows -> T {
     return try body()
 }
 
-private func trustQuery() -> [CFString: Any] {
-    [kSecClass: kSecClassGenericPassword, kSecAttrService: trustService, kSecAttrAccount: trustAccount]
+private func runSecurity(_ arguments: [String], allowNotFound: Bool = false) -> Data? {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/security")
+    process.arguments = arguments
+    let output = Pipe()
+    let errors = Pipe()
+    process.standardOutput = output
+    process.standardError = errors
+    do { try process.run() } catch { fail("Keychain security command unavailable") }
+    process.waitUntilExit()
+    let data = output.fileHandleForReading.readDataToEndOfFile()
+    let errorData = errors.fileHandleForReading.readDataToEndOfFile()
+    guard data.count <= 64 * 1024, errorData.count <= 64 * 1024 else { fail("Keychain security command output exceeded limit") }
+    if allowNotFound && process.terminationStatus == 44 { return nil }
+    guard process.terminationReason == .exit && process.terminationStatus == 0 else { fail("Keychain security command failed") }
+    return data
 }
 
 private func readTrust() -> TrustState? {
-    var query = trustQuery()
-    query[kSecReturnData] = true
-    query[kSecMatchLimit] = kSecMatchLimitOne
-    var item: CFTypeRef?
-    let status = SecItemCopyMatching(query as CFDictionary, &item)
-    if status == errSecItemNotFound { return nil }
-    guard status == errSecSuccess, let data = item as? Data else { fail("trust state read failed") }
+    guard let data = runSecurity(["find-generic-password", "-s", trustService, "-a", trustAccount, "-w"], allowNotFound: true) else { return nil }
     guard let state = try? JSONDecoder().decode(TrustState.self, from: data) else { fail("trust state is malformed") }
     return state
 }
@@ -340,16 +326,9 @@ private func writeTrust(_ state: TrustState, replacing existing: Bool) {
         encoder.outputFormatting = [.sortedKeys]
         data = try encoder.encode(state)
     } catch { fail("trust state encoding failed") }
-    if existing {
-        let status = SecItemUpdate(trustQuery() as CFDictionary, [kSecValueData: data] as CFDictionary)
-        guard status == errSecSuccess else { fail("trust state update failed") }
-    } else {
-        var item = trustQuery()
-        item[kSecValueData] = data
-        item[kSecAttrAccessible] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(item as CFDictionary, nil)
-        guard status == errSecSuccess else { fail("trust state enrollment failed") }
-    }
+    guard let value = String(data: data, encoding: .utf8) else { fail("trust state encoding failed") }
+    _ = existing
+    _ = runSecurity(["add-generic-password", "-U", "-s", trustService, "-a", trustAccount, "-w", value])
 }
 
 private func trustCAS(_ request: Request) -> TrustState {
@@ -838,11 +817,13 @@ private func validateAuthority(_ authority: Authority, manifest: Manifest) {
         previousPath = entry.relative_path
         computedCounts[entry.tier, default: 0] += 1
         if entry.tier == "redirect" {
-            guard let destination = entry.canonical_path else { fail("authority redirect is incomplete") }
-            _ = normalizedRedirectTarget(destination)
-            computedRedirects[entry.relative_path] = destination
-        } else if entry.canonical_path != nil {
-            fail("authority canonical path is inconsistent")
+            // Dobby classifies do_not_answer_as_current evidence ledgers as
+            // redirect-tier even when they are not path aliases. Only entries
+            // carrying canonical_path participate in redirect_map.
+            if let destination = entry.canonical_path {
+                _ = normalizedRedirectTarget(destination)
+                computedRedirects[entry.relative_path] = destination
+            }
         }
     }
     let copiedPaths = Set(manifest.files.filter({ $0.state == "copied" }).map({ $0.relative_path }))
@@ -908,13 +889,11 @@ func attestCandidate(_ request: Request) -> Response {
     let payload = validatedCandidatePayload(request, createdAt: ISO8601DateFormatter().string(from: Date()))
     let canonical = canonicalPayload(payload)
     let privateKey = findPrivateKey()
-    var signingError: Unmanaged<CFError>?
-    guard let signature = SecKeyCreateSignature(privateKey, .ecdsaSignatureMessageX962SHA256, canonical as CFData, &signingError) as Data?,
-          let publicKey = SecKeyCopyPublicKey(privateKey) else {
-        fail("secure enclave signing failed")
-    }
-    let keyID = sha256Hex(p256SPKI(publicKey))
-    return Response.ok(keyID: keyID, payload: payload, signatureAlgorithm: "ECDSA_P256_SHA256", signature: base64(signature))
+    let signature: P256.Signing.ECDSASignature
+    do { signature = try privateKey.signature(for: canonical) }
+    catch { fail("secure enclave signing failed") }
+    let keyID = sha256Hex(p256SPKI(privateKey.publicKey.x963Representation))
+    return Response.ok(keyID: keyID, payload: payload, signatureAlgorithm: "ECDSA_P256_SHA256", signature: base64(signature.derRepresentation))
 }
 
 

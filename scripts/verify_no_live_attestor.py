@@ -165,6 +165,21 @@ def main() -> None:
     write_json(snapshot / "authority.json", unresolved)
     run_harness(expect_ok=True, label="valid-unresolved-redirect")
 
+    evidence_only_redirect = valid_authority()
+    evidence_only_redirect["tier_counts"] = {"redirect": 2}
+    evidence_only_redirect["entries"][0].update({
+        "tier": "redirect",
+        "do_not_answer_as_current": True,
+        "authority": "evidence_only",
+    })
+    write_json(snapshot / "authority.json", evidence_only_redirect)
+    run_harness(expect_ok=True, label="valid-evidence-only-redirect-without-canonical-path")
+
+    canonical_metadata = valid_authority()
+    canonical_metadata["entries"][0]["canonical_path"] = "brain/a.md"
+    write_json(snapshot / "authority.json", canonical_metadata)
+    run_harness(expect_ok=True, label="valid-nonredirect-canonical-metadata")
+
     request_cases: list[tuple[str, dict[str, Any] | bytes]] = [
         ("generation-dot", {**request, "generation": "."}),
         ("generation-dotdot", {**request, "generation": ".."}),

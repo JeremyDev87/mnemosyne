@@ -11,6 +11,8 @@ trap 'rm -rf "$root"' EXIT
 mkdir -p "$root/Applications" "$root/Library/Application Support/Mnemosyne"
 ditto "$app" "$root/Applications/Mnemosyne.app"
 ditto "$runtime" "$root/Library/Application Support/Mnemosyne/dobby-runtime"
+/usr/bin/xattr -cr "$root"
+/usr/bin/find "$root" -name '._*' -delete
 chmod -R go-w "$root/Library/Application Support/Mnemosyne"
 mkdir -p "$(dirname "$output")"
 /usr/bin/pkgbuild \
