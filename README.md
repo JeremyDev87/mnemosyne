@@ -14,13 +14,13 @@
 
 ## 활성화 상태
 
-Authenticity consumer contract와 ephemeral-key packaged E2E는 구현되어 있습니다. 하지만 production trust anchor, Keychain anti-replay state, trusted producer command는 아직 provisioning되지 않았으므로 일반 package는 Wiki를 `unavailable`로 유지합니다. unsigned schema v1이나 PATH의 임의 `dobby-wiki`로 fallback하지 않습니다.
+Authenticity consumer contract, exact Dobby `0.2.0rc2` runtime admission, Keychain-authoritative activation coordinator와 제한된 owner operation(`key-info`, `enroll`, `activate`)이 구현되어 있습니다. ordinary startup은 enrollment, attestation, pointer promotion, Keychain CAS, recovery resume를 자동 실행하지 않습니다. 신뢰가 프로비저닝되지 않은 새 설치는 Wiki를 `unavailable`로 유지하며 unsigned schema v1, PATH의 임의 `dobby-wiki`, local receipt로 fallback하지 않습니다.
 
-Live 활성화에는 재현 가능한 canonical producer source, Secure Enclave attestor, stable signed app/helper identity, Keychain의 public-key fingerprint와 minimum sequence가 필요합니다. 테스트용 private key는 실행 중 메모리에서만 생성하며 source/package/artifact에 저장하지 않습니다.
+문서화된 동일 Mac 내부 alpha 실행에서는 Secure Enclave enrollment, generation 0→1 activation, sequence 1 authoritative readback과 read-only product smoke가 완료됐습니다. 이는 해당 Mac의 local ad-hoc 설치 증거이며 production signing, 공증 또는 다른 Mac에서의 신원·배포 보증이 아닙니다. 단계별 증거와 잔여 tracker gap은 [`docs/internal-alpha-checklist.md`](docs/internal-alpha-checklist.md)에 기록합니다.
 
 ## 명시적 비범위
 
-외부 웹 서비스·원격 API·ingest·tunnel·socket daemon·DB, Wiki 쓰기, production signing·공증·DMG 배포·자동 업데이트는 포함하지 않습니다.
+외부 웹 서비스·원격 API·ingest·tunnel·socket daemon·DB, Wiki 쓰기, Personal Ops 편집, production signing·공증·DMG 배포·자동 업데이트는 포함하지 않습니다.
 
 ## 로컬 검증
 
@@ -29,15 +29,21 @@ npm ci
 npm run check
 npm run package
 npm run test:e2e
+npm run make
+npm run verify:local-pkg-recovery
 ```
 
-`npm run package`는 local ad-hoc signed `.app`을 생성합니다. `npm run test:e2e`는 compile-time test build에서 임시 P-256 identity와 격리 snapshot을 만들고, 패키지된 macOS 앱의 signature/digest/replay gate, renderer UI, preload capability allowlist, Node 권한 부재를 확인합니다. 실제 개인 Wiki 원문이나 경로를 fixture·로그·artifact에 넣지 않습니다.
+`npm run package`는 local ad-hoc signed `.app`을 생성합니다. `npm run test:e2e`는 compile-time test build에서 임시 P-256 identity와 격리 snapshot을 만들고, 패키지된 macOS 앱의 signature/digest/replay gate, renderer UI, preload capability allowlist, Node 권한 부재를 확인합니다.
+
+`npm run make`는 동일 Mac 내부용 unsigned PKG를 생성합니다. `npm run verify:local-pkg-recovery`는 임시 root에서 payload copy/remove/reinstall/dirty-target 거부/rollback만 시뮬레이션하며 실제 installer receipt, `/Applications`·`/Library` ownership, production cold start 또는 installed-state rollback 증거가 아닙니다. 실제 개인 Wiki 원문이나 경로를 fixture·로그·artifact에 넣지 않습니다.
 
 ## 주요 경로
 
 - `src/electron/` — main, preload, IPC, renderer 보안 경계
 - `src/renderer/` — local dashboard UI
+- `src/trust/owner-activation.ts` — 제한된 owner-only enrollment/activation surface
 - `src/wiki/dobby-{adapter,snapshot}.ts` — immutable snapshot read adapter
+- `src/wiki/keychain-activation.ts` — pointer-first, native-helper Keychain-CAS-second activation/recovery contract
 - `src/wiki/snapshot-attestation.ts` — P-256 signature, key identity, anti-replay consumer contract
 - `src/wiki/{authority,import-manifest,source-reader}.ts` — provenance/allowlist 검증 코어
 - `src/personal-ops/` — read-only summary parser
@@ -45,7 +51,7 @@ npm run test:e2e
 
 ## 운영 경계
 
-별도 명시 승인이 필요한 작업: Dobby snapshot producer/runtime 변경, Secure Enclave·Keychain provisioning, iCloud Wiki write, production signing/notarization/distribution/auto-update, 원격 서비스 또는 GitHub 작업.
+별도 명시 승인이 필요한 작업: Dobby snapshot producer/runtime 변경, 새 Secure Enclave·Keychain provisioning 또는 activation mutation, iCloud Wiki write, Personal Ops edit, production signing/notarization/distribution/auto-update, 원격 서비스 또는 GitHub 작업.
 
 ## 라이선스
 
