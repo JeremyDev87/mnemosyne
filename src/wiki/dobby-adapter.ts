@@ -55,6 +55,7 @@ async function defaultCommandRunner(command: string, args: readonly string[]): P
 
 export interface DobbyWikiAdapterOptions {
   stateRoot: string;
+  commandStateRoot?: string;
   command?: string;
   admitCommand?: () => Promise<string>;
   runCommand?: CommandRunner;
@@ -68,6 +69,7 @@ export function buildVerifiedExcerpt(body: string, maximumLength = 500): string 
 
 export class DobbyWikiAdapter {
   readonly #stateRoot: string;
+  readonly #commandStateRoot: string;
   readonly #command?: string;
   readonly #admitCommand?: () => Promise<string>;
   readonly #runCommand: CommandRunner;
@@ -77,6 +79,7 @@ export class DobbyWikiAdapter {
 
   constructor(options: DobbyWikiAdapterOptions) {
     this.#stateRoot = options.stateRoot;
+    this.#commandStateRoot = options.commandStateRoot ?? options.stateRoot;
     this.#command = options.command;
     this.#admitCommand = options.admitCommand;
     this.#runCommand = options.runCommand ?? defaultCommandRunner;
@@ -98,7 +101,7 @@ export class DobbyWikiAdapter {
   async health(): Promise<HealthResult> {
     try {
       const snapshot = await this.#snapshot();
-      const raw = await this.#execute(["--state-root", this.#stateRoot, "--pretty", "health"]);
+      const raw = await this.#execute(["--state-root", this.#commandStateRoot, "--pretty", "health"]);
       const health = healthOutputSchema.parse(raw);
       if (health.degraded) throw new Error("degraded");
       const copied = [...snapshot.entries.values()].filter((entry) => entry.state === "copied").length;
@@ -112,7 +115,7 @@ export class DobbyWikiAdapter {
     const input = searchRequestSchema.parse(request);
     try {
       const snapshot = await this.#snapshot();
-      const raw = await this.#execute(["--state-root", this.#stateRoot, "--pretty", "-n", String(input.limit), "search", input.query]);
+      const raw = await this.#execute(["--state-root", this.#commandStateRoot, "--pretty", "-n", String(input.limit), "search", input.query]);
       const output = searchOutputSchema.parse(raw);
       if (output.degraded) throw new Error("degraded");
       const hits = [];

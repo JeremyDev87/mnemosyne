@@ -13,6 +13,7 @@ describe("Electron package entry contract", () => {
     expect((packageJson.scripts as Record<string, string>).make).toBe("npm run package && npm run build:dobby-runtime && bash scripts/build-macos-pkg.sh");
     expect((packageJson.scripts as Record<string, string>).package).not.toContain("build:dobby-runtime");
     expect((packageJson.scripts as Record<string, string>).make).toContain("npm run build:dobby-runtime");
+    expect((packageJson.scripts as Record<string, string>)["verify:local-pkg-recovery"]).toContain("verify-local-pkg-recovery.py");
     expect(forgeConfig).toContain("[FuseV1Options.GrantFileProtocolExtraPrivileges]: false");
     expect(forgeConfig).toContain("strictlyRequireAllFuses: true");
     expect(forgeConfig).toContain("[FuseV1Options.WasmTrapHandlers]: true");

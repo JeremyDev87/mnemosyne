@@ -8,12 +8,14 @@ import { z } from "zod";
 const execFileAsync = promisify(execFile);
 
 export const DOBBY_PACKAGE_VERSION = "0.2.0rc2";
-export const DOBBY_SOURCE_COMMIT = "02bd79ab0c86f1b4f79662220b5f1e5d47a9d0a8";
+export const DOBBY_SOURCE_COMMIT = "40870e2a6896df7c41e33d03641e481191e33f72";
+export const DOBBY_SEMANTIC_MEMBERS_SHA256 = "4554dfa7c590a019a2a5ae9bf006b481b4e7b066e5bdb9d46e68f307148a9856";
 const authoritySchema = z.object({
   schema_version: z.literal(1),
   package_name: z.literal("dobby-wiki-retrieval"),
   package_version: z.literal(DOBBY_PACKAGE_VERSION),
   source_commit: z.literal(DOBBY_SOURCE_COMMIT),
+  semantic_members_sha256: z.literal(DOBBY_SEMANTIC_MEMBERS_SHA256),
   wheel_sha256: z.array(z.string().regex(/^[a-f0-9]{64}$/u)).min(1).max(2),
   command_sha256: z.string().regex(/^[a-f0-9]{64}$/u),
   python_sha256: z.string().regex(/^[a-f0-9]{64}$/u),

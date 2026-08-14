@@ -33,11 +33,11 @@ export type TrustedHelperResponse = z.infer<typeof helperResponseSchema>;
 type HelperFileBinding = Readonly<{ dev: number; ino: number; size: number; mtimeMs: number; sha256: string }>;
 export type CodeSignatureIdentity = Readonly<{ identifier?: string; teamIdentifier?: string }>;
 export type TrustedSignatureMode = "local-ad-hoc" | "team-signed";
-export type TrustedHelperFailureReason = "invalid-successor" | "rejected";
+export type TrustedHelperFailureReason = "invalid-successor" | "not-enrolled" | "keychain-command-failed" | "candidate-manifest-rejected" | "candidate-authority-rejected" | "candidate-index-rejected" | "candidate-document-rejected" | "candidate-root-rejected" | "candidate-rejected" | "rejected";
 
 export class TrustedHelperRejectedError extends Error {
   constructor(readonly reason: TrustedHelperFailureReason) {
-    super("Trusted helper rejected request");
+    super(`Trusted helper rejected request: ${reason}`);
     this.name = "TrustedHelperRejectedError";
   }
 }
@@ -45,7 +45,16 @@ export class TrustedHelperRejectedError extends Error {
 export function parseTrustedHelperFailureReason(output: string): TrustedHelperFailureReason {
   try {
     const failure = helperFailureSchema.parse(JSON.parse(output));
-    return failure.error === "trust state successor is invalid" ? "invalid-successor" : "rejected";
+    if (failure.error === "trust state successor is invalid") return "invalid-successor";
+    if (failure.error === "secure enclave signing key is not enrolled") return "not-enrolled";
+    if (failure.error === "Keychain security command failed") return "keychain-command-failed";
+    if (failure.error.includes("manifest")) return "candidate-manifest-rejected";
+    if (failure.error.includes("authority")) return "candidate-authority-rejected";
+    if (failure.error.includes("wikimap") || failure.error.includes("index.db")) return "candidate-index-rejected";
+    if (failure.error.includes("document")) return "candidate-document-rejected";
+    if (failure.error.includes("projection") || failure.error.includes("snapshots") || failure.error.includes("generation")) return "candidate-root-rejected";
+    if (failure.error.includes("candidate")) return "candidate-rejected";
+    return "rejected";
   } catch {
     return "rejected";
   }

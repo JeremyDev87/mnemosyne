@@ -38,7 +38,8 @@ async function fixture(): Promise<{ resourcesPath: string; appExecutable: string
     schema_version: 1,
     package_name: "dobby-wiki-retrieval",
     package_version: "0.2.0rc2",
-    source_commit: "02bd79ab0c86f1b4f79662220b5f1e5d47a9d0a8",
+    source_commit: "40870e2a6896df7c41e33d03641e481191e33f72",
+    semantic_members_sha256: "4554dfa7c590a019a2a5ae9bf006b481b4e7b066e5bdb9d46e68f307148a9856",
     wheel_sha256: ["a".repeat(64), "a".repeat(64)],
     command_sha256: commandSha256,
     python_sha256: pythonSha256,
@@ -63,6 +64,8 @@ describe("bundled Dobby command admission", () => {
     expect(admission.command).toBe(await realpath(candidate.command));
     expect(admission.runtimeRoot).toBe(await realpath(join(candidate.resourcesPath, "dobby-runtime")));
     expect(admission.authority.package_version).toBe("0.2.0rc2");
+    expect(admission.authority.source_commit).toBe("40870e2a6896df7c41e33d03641e481191e33f72");
+    expect(admission.authority.semantic_members_sha256).toBe("4554dfa7c590a019a2a5ae9bf006b481b4e7b066e5bdb9d46e68f307148a9856");
   });
 
   it.each([
@@ -88,6 +91,21 @@ describe("bundled Dobby command admission", () => {
       expectedUid: process.getuid?.() ?? 0,
       verifySignature: acceptedSignature
     })).rejects.toBeInstanceOf(DobbyCommandRejectedError);
+  });
+
+  it.each([
+    ["stale source commit", { source_commit: "02bd79ab0c86f1b4f79662220b5f1e5d47a9d0a8" }],
+    ["wrong semantic member digest", { semantic_members_sha256: "f".repeat(64) }]
+  ])("rejects authority with %s", async (_label, authorityPatch) => {
+    const candidate = await fixture();
+    const authority = JSON.parse(await readFile(candidate.authorityPath, "utf8")) as Record<string, unknown>;
+    await writeFile(candidate.authorityPath, JSON.stringify({ ...authority, ...authorityPatch }));
+    await expect(admitBundledDobbyCommand({
+      resourcesPath: candidate.resourcesPath,
+      appExecutable: candidate.appExecutable,
+      expectedUid: process.getuid?.() ?? 0,
+      verifySignature: acceptedSignature
+    })).rejects.toBeDefined();
   });
 
   it("rejects a post-build command mutation even when the runtime root remains present", async () => {
